@@ -1,0 +1,193 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT THEME (default)
+═══════════════════════════════════════════════════════════ */
+:root {
+  --bg:          #ffffff;
+  --bg-subtle:   #f8f9fa;
+  --bg-card:     #ffffff;
+  --bg-elevated: #f3f4f6;
+  --fg:          #0f0f0f;
+  --fg-muted:    #6b7280;
+  --fg-subtle:   #9ca3af;
+  --border:      #e5e7eb;
+  --border-strong: #d1d5db;
+  --primary:     #111827;
+  --primary-fg:  #ffffff;
+  --accent:      #2563eb;
+  --accent-fg:   #ffffff;
+  --success:     #16a34a;
+  --danger:      #dc2626;
+  --warning:     #d97706;
+  --ring:        #2563eb;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md:   0 4px 16px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+  --shadow-lg:   0 12px 40px rgba(0,0,0,.12), 0 4px 12px rgba(0,0,0,.06);
+  --radius:      0.75rem;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DARK THEME
+═══════════════════════════════════════════════════════════ */
+html.dark {
+  --bg:          #0a0a0a;
+  --bg-subtle:   #111111;
+  --bg-card:     #161616;
+  --bg-elevated: #1e1e1e;
+  --fg:          #f5f5f5;
+  --fg-muted:    #a3a3a3;
+  --fg-subtle:   #737373;
+  --border:      #262626;
+  --border-strong: #404040;
+  --primary:     #f5f5f5;
+  --primary-fg:  #0a0a0a;
+  --accent:      #3b82f6;
+  --accent-fg:   #ffffff;
+  --success:     #22c55e;
+  --danger:      #f87171;
+  --warning:     #fbbf24;
+  --ring:        #3b82f6;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md:   0 4px 16px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.3);
+  --shadow-lg:   0 12px 40px rgba(0,0,0,.6), 0 4px 12px rgba(0,0,0,.4);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html { scroll-behavior: smooth; color-scheme: light; }
+html.dark { color-scheme: dark; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SCROLLBAR
+═══════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-subtle); }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+/* ═══════════════════════════════════════════════════════════
+   UTILITY CLASSES  (theme-aware)
+═══════════════════════════════════════════════════════════ */
+.bg-theme        { background: var(--bg); }
+.bg-theme-subtle { background: var(--bg-subtle); }
+.bg-theme-card   { background: var(--bg-card); }
+.bg-elevated     { background: var(--bg-elevated); }
+.text-theme      { color: var(--fg); }
+.text-muted      { color: var(--fg-muted); }
+.text-subtle     { color: var(--fg-subtle); }
+.border-theme    { border-color: var(--border); }
+.border-strong   { border-color: var(--border-strong); }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-elevated {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  padding: 0.75rem 1.75rem;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  border: none;
+}
+.btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0); }
+
+.btn-outline {
+  background: transparent;
+  color: var(--fg);
+  border: 2px solid var(--border-strong);
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  padding: 0.625rem 1.625rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+.btn-outline:hover { border-color: var(--fg); background: var(--bg-elevated); }
+
+.input-field {
+  width: 100%;
+  background: var(--bg-subtle);
+  color: var(--fg);
+  border: 1.5px solid var(--border);
+  border-radius: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input-field::placeholder { color: var(--fg-subtle); }
+.input-field:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+═══════════════════════════════════════════════════════════ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.animate-fade-up  { animation: fadeUp  0.4s ease both; }
+.animate-fade-in  { animation: fadeIn  0.3s ease both; }
+
+/* Skeleton loader */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-subtle) 50%, var(--bg-elevated) 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
+
+/* Line clamp */
+.line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Focus visible */
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 4px; }
+
+/* Selection */
+::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+

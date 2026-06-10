@@ -1,0 +1,258 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options: [staging, production]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/threadx
+
+jobs:
+  # ─── 1. Run full test suite (gate for deploy) ────────────────────────────────
+  test-gate:
+    name: Test Gate
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  # ─── 2. Build and push Docker images ────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: test-gate
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend-tag: ${{ steps.meta-backend.outputs.tags }}
+      frontend-tag: ${{ steps.meta-frontend.outputs.tags }}
+      sha-short: ${{ steps.sha.outputs.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get short SHA
+        id: sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for backend image
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for frontend image
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.STAGING_API_URL }}
+
+  # ─── 3. Deploy to Staging ────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment:
+      name: staging
+      url: https://staging.threadx.in
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+      - name: Deploy backend to staging
+        run: |
+          helm upgrade --install threadx-backend ./helm/api \
+            --namespace threadx-staging \
+            --create-namespace \
+            --set image.tag=sha-${{ needs.build-and-push.outputs.sha-short }} \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend \
+            --set env.DATABASE_URL="${{ secrets.STAGING_DATABASE_URL }}" \
+            --set env.REDIS_URL="${{ secrets.STAGING_REDIS_URL }}" \
+            --set env.JWT_SECRET_KEY="${{ secrets.STAGING_JWT_SECRET }}" \
+            --wait \
+            --timeout=5m
+
+      - name: Deploy frontend to staging
+        run: |
+          helm upgrade --install threadx-frontend ./helm/frontend \
+            --namespace threadx-staging \
+            --set image.tag=sha-${{ needs.build-and-push.outputs.sha-short }} \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend \
+            --set env.NEXT_PUBLIC_API_URL="${{ secrets.STAGING_API_URL }}" \
+            --wait \
+            --timeout=5m
+
+      - name: Run smoke tests against staging
+        run: |
+          sleep 10
+          curl --fail https://staging.threadx.in/api/health || exit 1
+          echo "Smoke test passed"
+
+  # ─── 4. E2E Tests on Staging ─────────────────────────────────────────────────
+  e2e-staging:
+    name: E2E Tests (Staging)
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests against staging
+        working-directory: frontend
+        run: npx playwright test --project=chromium
+        env:
+          PLAYWRIGHT_BASE_URL: https://staging.threadx.in
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-staging
+          path: frontend/playwright-report/
+          retention-days: 14
+
+  # ─── 5. Manual approval gate for production ──────────────────────────────────
+  production-approval:
+    name: Production Deploy Approval
+    runs-on: ubuntu-latest
+    needs: e2e-staging
+    environment:
+      name: production-approval  # Requires manual approval in GitHub Environments
+    steps:
+      - name: Approval acknowledged
+        run: echo "Production deploy approved by ${{ github.actor }}"
+
+  # ─── 6. Deploy to Production ─────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, production-approval]
+    environment:
+      name: production
+      url: https://threadx.in
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false  # Never cancel in-flight production deploys
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+      - name: Deploy backend to production (rolling update)
+        run: |
+          helm upgrade --install threadx-backend ./helm/api \
+            --namespace threadx-prod \
+            --create-namespace \
+            --set image.tag=sha-${{ needs.build-and-push.outputs.sha-short }} \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend \
+            --set replicaCount=3 \
+            --set env.DATABASE_URL="${{ secrets.PROD_DATABASE_URL }}" \
+            --set env.REDIS_URL="${{ secrets.PROD_REDIS_URL }}" \
+            --set env.JWT_SECRET_KEY="${{ secrets.PROD_JWT_SECRET }}" \
+            --set env.OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+            --set env.AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            --set env.AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            --atomic \
+            --timeout=10m
+
+      - name: Deploy frontend to production
+        run: |
+          helm upgrade --install threadx-frontend ./helm/frontend \
+            --namespace threadx-prod \
+            --set image.tag=sha-${{ needs.build-and-push.outputs.sha-short }} \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend \
+            --set replicaCount=2 \
+            --set env.NEXT_PUBLIC_API_URL="${{ secrets.PROD_API_URL }}" \
+            --atomic \
+            --timeout=10m
+
+      - name: Production smoke test
+        run: |
+          sleep 15
+          curl --fail https://threadx.in/api/health || exit 1
+          echo "Production deploy successful"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deploy-${{ needs.build-and-push.outputs.sha-short }}
+          name: "Production deploy ${{ needs.build-and-push.outputs.sha-short }}"
+          body: "Deployed commit ${{ github.sha }} to production"
+          generate_release_notes: true
