@@ -54,6 +54,7 @@ class PaymentMethod(str, enum.Enum):
     net_banking = "net_banking"
     cod = "cod"
     loyalty_points = "loyalty_points"
+    razorpay = "razorpay"
 
 
 class PaymentStatus(str, enum.Enum):
@@ -208,6 +209,10 @@ class Order(Base):
     total: Mapped[float] = mapped_column(Float, nullable=False)
     coupon_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Razorpay payment tracking
+    razorpay_order_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True, index=True)
+    razorpay_signature: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

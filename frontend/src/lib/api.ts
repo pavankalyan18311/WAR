@@ -1,7 +1,22 @@
 import axios from 'axios';
 
+function resolveApiBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_URL;
+
+  if (typeof window !== 'undefined') {
+    const pointsToInternal = !!configured && /localhost|127\.0\.0\.1|0\.0\.0\.0|backend:/.test(configured);
+
+    // Browser clients must not call container/internal hosts directly.
+    if (pointsToInternal) {
+      return '/backend/api';
+    }
+  }
+
+  return configured || '/backend/api';
+}
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api',
+  baseURL: resolveApiBaseUrl(),
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 });

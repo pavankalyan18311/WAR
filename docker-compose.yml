@@ -1,7 +1,7 @@
 version: "3.9"
 
 services:
-  # ─── PostgreSQL Database ─────────────────────────────────────────────────
+  # ─── PostgreSQL + pgvector ─────────────────────────────
   db:
     image: pgvector/pgvector:pg16
     container_name: threadx_db
@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── Redis Cache ──────────────────────────────────────────────────────────
+  # ─── Redis ─────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: threadx_redis
@@ -33,17 +33,25 @@ services:
       timeout: 3s
       retries: 5
 
-  # ─── FastAPI Backend ──────────────────────────────────────────────────────
+  # ─── FastAPI Backend ───────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: threadx_backend
+    env_file:
+      - ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://threadx:threadx_password@db:5432/threadx_db
       REDIS_URL: redis://redis:6379/0
-      DEBUG: "true"
-      ALLOWED_ORIGINS: "http://localhost:3000"
+      ALLOWED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      MSG91_VERIFY_SSL: "false"
+      RESEND_VERIFY_SSL: "false"
+      ENVIRONMENT: development
+      JWT_ALGORITHM: "HS256"
+      JWT_SECRET_KEY: "dev-secret-change-in-production"
+      HOST: "0.0.0.0"
+      PORT: "8000"
     ports:
       - "8000:8000"
     depends_on:
@@ -53,24 +61,31 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-  # ─── Next.js Frontend ─────────────────────────────────────────────────────
+  # ─── Next.js Frontend ──────────────────────────────────
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: threadx_frontend
+    env_file:
+      - ./frontend/.env.local
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api
+      BACKEND_ORIGIN: http://backend:8000
+      ALLOWED_DEV_ORIGINS: https://*.trycloudflare.com
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
     ports:
       - "3000:3000"
     depends_on:
       - backend
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/next.config.ts:/app/next.config.ts
+      - ./frontend/tailwind.config.ts:/app/tailwind.config.ts
+    command: npm run dev
 
 volumes:
   postgres_data:

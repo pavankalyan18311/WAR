@@ -25,31 +25,25 @@ const YoutubeIcon = () => (
 
 const LINKS = {
   Shop: [
-    { label: 'All T-Shirts', href: '/products' },
     { label: 'Oversized', href: '/products?category=oversized' },
-    { label: 'Graphic Tees', href: '/products?category=graphic' },
-    { label: 'Premium Collection', href: '/products?category=premium' },
-    { label: 'Sale Items', href: '/products?sale=true' },
+    { label: 'New Arrivals', href: '/products' },
+    { label: 'Best Sellers', href: '/products?sort=popular' },
   ],
-  'AI Features': [
-    { label: 'Virtual Try-On', href: '/try-on' },
-    { label: 'AI Size Guide', href: '/size-guide' },
-    { label: 'Style Assistant', href: '/#chatbot' },
-    { label: 'Personalized Picks', href: '/for-you' },
+  Company: [
+    { label: 'About WAR', href: '/about' },
+    { label: 'Contact', href: '/contact' },
   ],
   Support: [
-    { label: 'Track Your Order', href: '/account/orders' },
-    { label: 'Shipping Policy', href: '/shipping' },
-    { label: 'Returns & Refunds', href: '/returns' },
-    { label: 'Contact Us', href: '/contact' },
-    { label: 'FAQ', href: '/faq' },
+    { label: 'Shipping Policy', href: '/shipping-policy' },
+    { label: 'Returns & Refunds', href: '/refund-policy' },
+    { label: 'Privacy Policy', href: '/privacy-policy' },
+    { label: 'Terms', href: '/terms-of-service' },
   ],
 };
 
 const SOCIAL = [
   { label: 'Instagram', href: '#', icon: InstagramIcon },
-  { label: 'Twitter', href: '#', icon: TwitterXIcon },
-  { label: 'YouTube', href: '#', icon: YoutubeIcon },
+  { label: 'WhatsApp', href: 'https://wa.me/919876543210', icon: TwitterXIcon },
 ];
 
 export default function Footer() {
@@ -59,15 +53,11 @@ export default function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <Link href="/" className="flex items-center gap-2.5 mb-4">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs"
-                style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                TX
-              </div>
-              <span className="text-lg font-black tracking-tight" style={{ color: 'var(--fg)' }}>THREADX</span>
+            <Link href="/" className="inline-flex items-center mb-4">
+              <span className="text-2xl font-black tracking-tight" style={{ color: 'var(--fg)' }}>WAR</span>
             </Link>
             <p className="text-sm leading-relaxed mb-5" style={{ color: 'var(--fg-muted)' }}>
-              Premium quality t-shirts crafted for modern men. AI-powered shopping experience that eliminates doubt.
+              Premium heavyweight oversized t-shirts crafted for expression and comfort.
             </p>
             <div className="flex gap-2">
               {SOCIAL.map(({ label, href, icon: Icon }) => (
@@ -108,7 +98,7 @@ export default function Footer() {
         <div className="mt-10 pt-8 flex flex-col sm:flex-row gap-4 sm:gap-8"
           style={{ borderTop: '1px solid var(--border)' }}>
           {[
-            { icon: Mail, text: 'support@threadx.in' },
+            { icon: Mail, text: 'support@warbrand.in' },
             { icon: Phone, text: '+91 98765 43210' },
             { icon: MapPin, text: 'Bengaluru, Karnataka, India' },
           ].map(({ icon: Icon, text }) => (
@@ -122,10 +112,14 @@ export default function Footer() {
         {/* Bottom Bar */}
         <div className="mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs"
           style={{ borderTop: '1px solid var(--border)', color: 'var(--fg-subtle)' }}>
-          <p>&copy; {new Date().getFullYear()} THREADX. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} WAR. All rights reserved.</p>
           <div className="flex gap-5">
-            {['Privacy Policy', 'Terms of Service', 'Cookie Policy'].map((label) => (
-              <Link key={label} href="#"
+            {[
+              { label: 'Privacy Policy', href: '/privacy-policy' },
+              { label: 'Terms of Service', href: '/terms-of-service' },
+              { label: 'Cookie Policy', href: '/cookie-policy' },
+            ].map(({ label, href }) => (
+              <Link key={label} href={href}
                 className="transition-colors"
                 onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--fg-muted)')}
                 onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--fg-subtle)')}>

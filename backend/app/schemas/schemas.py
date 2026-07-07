@@ -31,6 +31,57 @@ class UserLogin(BaseModel):
     password: str
 
 
+class VerifyMobileRequest(BaseModel):
+    access_token: str
+    mobile: Optional[str] = None
+
+
+class VerifyMobileResponse(BaseModel):
+    exists: bool
+    mobile: str
+    message: str
+
+
+class SendMobileOtpRequest(BaseModel):
+    mobile: str
+
+
+class SendMobileOtpResponse(BaseModel):
+    message: str
+
+
+class VerifyMobileOtpRequest(BaseModel):
+    mobile: str
+    otp: str
+
+
+class VerifyMobileOtpResponse(BaseModel):
+    exists: bool
+    mobile: str
+    message: str
+
+
+class SendEmailOtpRequest(BaseModel):
+    email: str
+
+
+class VerifyEmailOtpRequest(BaseModel):
+    email: str
+    otp: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        return v
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

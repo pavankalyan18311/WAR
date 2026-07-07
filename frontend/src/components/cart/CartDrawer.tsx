@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { X, ShoppingBag, Plus, Minus, Trash2, ArrowRight, ShieldCheck } from 'lucide-react';
+import { X, ShoppingBag, Plus, Minus, Trash2, ArrowRight, ShieldCheck, MessageCircle } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { formatPrice } from '@/lib/utils';
 
@@ -31,10 +31,31 @@ export default function CartDrawer() {
   const progress = mounted ? Math.min((summary.subtotal / FREE_SHIPPING_THRESHOLD) * 100, 100) : 0;
   const remaining = mounted ? Math.max(FREE_SHIPPING_THRESHOLD - summary.subtotal, 0) : FREE_SHIPPING_THRESHOLD;
 
+  const whatsappNumber = '919876543210';
+
+  const buildWhatsAppMessage = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://example.com';
+    const lines: string[] = [];
+    lines.push("Hello, I'd like to place an order:");
+    lines.push('');
+    items.forEach((it) => {
+      lines.push(`${it.quantity} x ${it.product.name} (${it.variant.size}/${it.variant.color}) - ${formatPrice(it.price * it.quantity)}`);
+      lines.push(`${origin}/products/${it.product.slug}`);
+      lines.push('');
+    });
+    lines.push(`Subtotal: ${formatPrice(summary.subtotal)}`);
+    lines.push(`Shipping: ${summary.shipping === 0 ? 'FREE' : formatPrice(summary.shipping)}`);
+    lines.push(`Total: ${formatPrice(summary.total)}`);
+    lines.push('');
+    lines.push('Delivery Address:');
+    lines.push('Preferred Payment Method (UPI/Cash on Delivery/Other):');
+    return lines.join('\n');
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex justify-end">
+    <div data-testid="cart-drawer" className="fixed inset-0 z-[100] flex justify-end">
       {/* Backdrop */}
       <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
         onClick={closeCart} />
@@ -51,7 +72,7 @@ export default function CartDrawer() {
             <ShoppingBag size={18} style={{ color: 'var(--fg)' }} />
             <h2 className="font-black text-base" style={{ color: 'var(--fg)' }}>Your Cart</h2>
             {mounted && items.length > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-bold"
+              <span data-testid="cart-badge" className="text-xs px-2 py-0.5 rounded-full font-bold"
                 style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}>
                 {items.reduce((s, i) => s + i.quantity, 0)}
               </span>
@@ -112,7 +133,7 @@ export default function CartDrawer() {
           ) : (
             <div className="space-y-3">
               {items.map((item) => (
-                <div key={item.cart_item_id} className="flex gap-3 p-3 rounded-xl"
+                <div key={item.cart_item_id} data-testid="cart-item" className="flex gap-3 p-3 rounded-xl"
                   style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                   <Link href={`/products/${item.product.slug}`} onClick={closeCart}
                     className="relative w-16 h-20 rounded-xl overflow-hidden flex-shrink-0"
@@ -206,6 +227,18 @@ export default function CartDrawer() {
               <span className="text-sm font-bold" style={{ color: 'var(--fg)' }}>Total</span>
               <span className="text-xl font-black" style={{ color: 'var(--fg)' }}>{formatPrice(summary.total)}</span>
             </div>
+
+            <a href={
+              `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(buildWhatsAppMessage())}`
+            }
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => closeCart()}
+              data-testid="whatsapp-checkout"
+              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-full font-bold text-sm uppercase tracking-wider hover:opacity-90 transition-opacity"
+              style={{ background: '#25D366', color: '#fff', boxShadow: 'var(--shadow-md)' }}>
+              <MessageCircle size={15} /> Order via WhatsApp
+            </a>
 
             <Link href="/checkout" onClick={closeCart}
               className="flex items-center justify-center gap-2 w-full py-3.5 rounded-full font-bold text-sm uppercase tracking-wider hover:opacity-90 transition-opacity"

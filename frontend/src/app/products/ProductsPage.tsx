@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { SlidersHorizontal, X, ChevronDown, ChevronUp } from 'lucide-react';
 import ProductCard from '@/components/product/ProductCard';
-import { MOCK_PRODUCTS } from '@/lib/mockData';
+import { MOCK_PRODUCTS, COLLECTIONS, getProductsForCollection, getCollectionBySlug } from '@/lib/mockData';
 import type { Product } from '@/types';
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
@@ -26,7 +26,17 @@ interface Filters {
   sizes: string[];
   colors: string[];
   category: string;
+  collections: string[];
   priceMax: number;
+}
+
+const MANAGED_QUERY_KEYS = ['category', 'collections', 'sizes', 'colors', 'priceMax', 'sort'] as const;
+
+function canonicalizeQuery(query: string): string {
+  const pairs = Array.from(new URLSearchParams(query).entries())
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .sort();
+  return pairs.join('&');
 }
 
 function FilterSection({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode; }) {
@@ -43,21 +53,121 @@ function FilterSection({ title, open, onToggle, children }: { title: string; ope
 
 export default function ProductsPage() {
   const searchParams = useSearchParams();
-  const [filters, setFilters] = useState<Filters>({ sizes: [], colors: [], category: 'All', priceMax: 5000 });
+  const searchParamsString = searchParams.toString();
+  const pathname = usePathname();
+  const router = useRouter();
+  const lastReplacedQueryRef = useRef<string>('');
+  const didHydrateFromUrlRef = useRef(false);
+  const syncingFromUrlRef = useRef(false);
+  const [filters, setFilters] = useState<Filters>({ sizes: [], colors: [], category: 'All', collections: [], priceMax: 5000 });
   const [sort, setSort] = useState('featured');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [openSections, setOpenSections] = useState({ category: true, size: true, color: true, price: true });
+  const [openSections, setOpenSections] = useState({ category: true, collections: false, size: true, color: true, price: true });
+  const searchTerm = searchParams.get('search') ?? '';
+
+  const getCategoryFromQuery = useCallback((value: string | null) => {
+    if (!value || value.toLowerCase() === 'all') return 'All';
+    const normalized = value.toLowerCase();
+    const exact = CATEGORIES_FILTER.find((cat) => cat.toLowerCase() === normalized);
+    if (exact) return exact;
+    const bySlug = CATEGORIES_FILTER.find((cat) => cat.toLowerCase().replace(/\s+/g, '-') === normalized);
+    return bySlug ?? 'All';
+  }, []);
+
+  const arraysEqual = useCallback((a: string[], b: string[]) => (
+    a.length === b.length && a.every((item, i) => item === b[i])
+  ), []);
+
+  // Read filter state from URL for deep links / refresh / browser back-forward.
+  useEffect(() => {
+    syncingFromUrlRef.current = true;
+    const params = new URLSearchParams(searchParamsString);
+    const nextFilters: Filters = {
+      sizes: (params.get('sizes') ?? '').split(',').filter(Boolean),
+      colors: (params.get('colors') ?? '').split(',').filter(Boolean),
+      category: getCategoryFromQuery(params.get('category')),
+      collections: (params.get('collections') ?? '').split(',').filter(Boolean),
+      priceMax: Number(params.get('priceMax') ?? 5000),
+    };
+    if (!Number.isFinite(nextFilters.priceMax)) nextFilters.priceMax = 5000;
+    const nextSort = params.get('sort') ?? 'featured';
+
+    setFilters((prev) => {
+      if (
+        arraysEqual(prev.sizes, nextFilters.sizes) &&
+        arraysEqual(prev.colors, nextFilters.colors) &&
+        arraysEqual(prev.collections, nextFilters.collections) &&
+        prev.category === nextFilters.category &&
+        prev.priceMax === nextFilters.priceMax
+      ) {
+        return prev;
+      }
+      return nextFilters;
+    });
+
+    setSort((prev) => (prev === nextSort ? prev : nextSort));
+    lastReplacedQueryRef.current = searchParamsString;
+    didHydrateFromUrlRef.current = true;
+  }, [searchParamsString, getCategoryFromQuery, arraysEqual]);
+
+  // Persist filter state into URL query params.
+  useEffect(() => {
+    if (!didHydrateFromUrlRef.current) return;
+    if (syncingFromUrlRef.current) {
+      syncingFromUrlRef.current = false;
+      return;
+    }
+
+    const params = new URLSearchParams(searchParamsString);
+
+    MANAGED_QUERY_KEYS.forEach((key) => params.delete(key));
+
+    if (filters.category !== 'All') params.set('category', filters.category.toLowerCase().replace(/\s+/g, '-'));
+
+    if (filters.collections.length) params.set('collections', filters.collections.join(','));
+
+    if (filters.sizes.length) params.set('sizes', filters.sizes.join(','));
+
+    if (filters.colors.length) params.set('colors', filters.colors.join(','));
+
+    if (filters.priceMax < 5000) params.set('priceMax', String(filters.priceMax));
+
+    if (sort !== 'featured') params.set('sort', sort);
+
+    if (searchTerm) params.set('search', searchTerm);
+
+    const nextQuery = params.toString();
+    const currentQuery = searchParamsString;
+    const queryChanged = canonicalizeQuery(nextQuery) !== canonicalizeQuery(currentQuery);
+    if (queryChanged && lastReplacedQueryRef.current !== nextQuery) {
+      lastReplacedQueryRef.current = nextQuery;
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+    }
+  }, [filters, sort, pathname, router, searchTerm, searchParamsString]);
 
   const toggleSection = (key: keyof typeof openSections) => setOpenSections((p) => ({ ...p, [key]: !p[key] }));
   const toggleSize = (s: string) => setFilters((p) => ({ ...p, sizes: p.sizes.includes(s) ? p.sizes.filter((x) => x !== s) : [...p.sizes, s] }));
   const toggleColor = (c: string) => setFilters((p) => ({ ...p, colors: p.colors.includes(c) ? p.colors.filter((x) => x !== c) : [...p.colors, c] }));
-  const clearFilters = useCallback(() => setFilters({ sizes: [], colors: [], category: 'All', priceMax: 5000 }), []);
+  const toggleCollection = (slug: string) => setFilters((p) => ({ ...p, collections: p.collections.includes(slug) ? p.collections.filter((x) => x !== slug) : [...p.collections, slug] }));
+  const clearFilters = useCallback(() => setFilters({ sizes: [], colors: [], category: 'All', collections: [], priceMax: 5000 }), []);
 
   const filtered = useMemo<Product[]>(() => {
-    const search = searchParams.get('search')?.toLowerCase() ?? '';
+    const search = searchTerm.toLowerCase();
     let results = MOCK_PRODUCTS.filter((p) => {
       if (search && !p.name.toLowerCase().includes(search) && !p.description?.toLowerCase().includes(search)) return false;
-      if (filters.category !== 'All' && p.category?.name.toLowerCase() !== filters.category.toLowerCase()) return false;
+      if (filters.category !== 'All') {
+        const selected = filters.category.toLowerCase();
+        const categoryName = p.category?.name.toLowerCase();
+        const categorySlug = p.category?.slug?.toLowerCase();
+        if (categoryName !== selected && categorySlug !== selected) return false;
+      }
+      if (filters.collections.length) {
+        const inAny = filters.collections.some((slug) => {
+          const col = getCollectionBySlug(slug);
+          return col ? getProductsForCollection(col).some((cp) => cp.product_id === p.product_id) : false;
+        });
+        if (!inAny) return false;
+      }
       if (filters.sizes.length && !p.variants?.some((v) => filters.sizes.includes(v.size))) return false;
       if (filters.colors.length && !p.variants?.some((v) => filters.colors.includes(v.color))) return false;
       if (p.price > filters.priceMax) return false;
@@ -67,9 +177,9 @@ export default function ProductsPage() {
     if (sort === 'price_desc') results = [...results].sort((a, b) => (b.discount_price ?? b.price) - (a.discount_price ?? a.price));
     if (sort === 'popular') results = [...results].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
     return results;
-  }, [filters, sort, searchParams]);
+  }, [filters, sort, searchTerm]);
 
-  const activeFilterCount = filters.sizes.length + filters.colors.length + (filters.category !== 'All' ? 1 : 0) + (filters.priceMax < 5000 ? 1 : 0);
+  const activeFilterCount = filters.sizes.length + filters.colors.length + filters.collections.length + (filters.category !== 'All' ? 1 : 0) + (filters.priceMax < 5000 ? 1 : 0);
 
   const FilterPanel = () => (
     <div>
@@ -83,10 +193,35 @@ export default function ProductsPage() {
         )}
       </div>
 
+      <FilterSection title="Collections" open={openSections.collections} onToggle={() => toggleSection('collections')}>
+        <div className="space-y-2">
+          {COLLECTIONS.map((col) => {
+            const active = filters.collections.includes(col.slug);
+            return (
+              <button key={col.slug} onClick={() => toggleCollection(col.slug)}
+                className="w-full flex items-center gap-3 text-sm">
+                <div className="w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0"
+                  style={{
+                    borderColor: active ? 'var(--primary)' : 'var(--border)',
+                    background: active ? 'var(--primary)' : 'transparent',
+                  }}>
+                  {active && (
+                    <svg viewBox="0 0 10 8" width="10" fill="none">
+                      <path d="M1 4l3 3 5-6" stroke="var(--primary-fg)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                <span style={{ color: active ? 'var(--fg)' : 'var(--fg-muted)', fontWeight: active ? 700 : 400 }}>{col.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </FilterSection>
+
       <FilterSection title="Category" open={openSections.category} onToggle={() => toggleSection('category')}>
         <div className="space-y-2">
           {CATEGORIES_FILTER.map((cat) => (
-            <button key={cat} onClick={() => setFilters((p) => ({ ...p, category: cat }))}
+            <button key={cat} data-testid={`filter-category-${cat.toLowerCase().replace(/\s+/g, '-')}`} onClick={() => setFilters((p) => ({ ...p, category: cat }))}
               className="w-full flex items-center gap-3 text-sm">
               <div className="w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0"
                 style={{
@@ -165,7 +300,7 @@ export default function ProductsPage() {
       <div className="flex items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>
-            {searchParams.get('search') ? `Results for "${searchParams.get('search')}"` : 'All Products'}
+            {searchTerm ? `Results for "${searchTerm}"` : 'All Products'}
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>{filtered.length} products</p>
         </div>
@@ -201,6 +336,16 @@ export default function ProductsPage() {
               <button onClick={() => setFilters((p) => ({ ...p, category: 'All' }))} style={{ color: 'var(--fg-muted)' }}><X size={11} /></button>
             </span>
           )}
+          {filters.collections.map((slug) => {
+            const col = COLLECTIONS.find((c) => c.slug === slug);
+            return col ? (
+              <span key={slug} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
+                {col.name}
+                <button onClick={() => toggleCollection(slug)} style={{ color: 'var(--fg-muted)' }}><X size={11} /></button>
+              </span>
+            ) : null;
+          })}
           {filters.sizes.map((s) => (
             <span key={s} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
               style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}>

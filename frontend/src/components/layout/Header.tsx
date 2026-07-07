@@ -2,21 +2,19 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Search, User, Heart, ShoppingBag, Menu, X, ChevronDown, Sun, Moon } from 'lucide-react';
+import { Search, User, ShoppingBag, Menu, X, ChevronDown, LogOut, Gift, Heart, Moon, Sun } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
-import { useWishlistStore } from '@/store/wishlistStore';
 import { useAuthStore } from '@/store/authStore';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import { cn } from '@/lib/utils';
 
 const NAV_LINKS = [
-  { label: 'Men', href: '/products', hasDropdown: true },
-  { label: 'T-Shirts', href: '/products' },
-  { label: 'Oversized', href: '/products?category=oversized' },
-  { label: 'Premium', href: '/products?category=premium' },
-  { label: 'Collections', href: '/collections' },
-  { label: 'Sale', href: '/products?sale=true', isSale: true },
+  { label: 'NEW DROPS', href: '/products' },
+  { label: 'OVERSIZED COLLECTION', href: '/products?category=oversized' },
+  { label: 'BEST SELLERS', href: '/products?sort=popular' },
+  { label: 'ABOUT US', href: '/about' },
 ];
 
 const MEN_DROPDOWN = [
@@ -35,13 +33,15 @@ export default function Header() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const totalItems = useCartStore((s) => s.getTotalItems());
   const openCart = useCartStore((s) => s.openCart);
-  const wishlistCount = useWishlistStore((s) => s.getTotalItems());
   const { isAuthenticated, user } = useAuthStore();
 
   useEffect(() => {
@@ -60,6 +60,9 @@ export default function Header() {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
       }
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
+      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -74,149 +77,139 @@ export default function Header() {
     }
   };
 
-  const isDark = mounted && theme === 'dark';
   const iconBtn = 'p-2 rounded-lg transition-all duration-150 relative';
+  const firstName = user?.first_name ?? user?.name?.split(' ')[0] ?? 'Guest';
+
+  const openDropdown = () => {
+    if (dropdownTimerRef.current) clearTimeout(dropdownTimerRef.current);
+    setDropdownOpen(true);
+  };
+  const closeDropdown = () => {
+    dropdownTimerRef.current = setTimeout(() => setDropdownOpen(false), 150);
+  };
 
   return (
     <>
-      {/* Announcement Bar */}
-      <div
-        className="text-center text-xs py-2.5 font-semibold tracking-widest"
-        style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-      >
-        FREE SHIPPING ON ORDERS ABOVE Rs.999 &nbsp;|&nbsp; USE CODE{' '}
-        <span className="font-black underline underline-offset-2">WELCOME10</span> FOR 10% OFF
-      </div>
-
       {/* Main Header */}
       <header
         className={cn('sticky top-0 z-50 transition-all duration-300')}
         style={{
-          background: isScrolled
-            ? isDark ? 'rgba(10,10,10,0.95)' : 'rgba(255,255,255,0.95)'
-            : 'var(--bg-card)',
-          backdropFilter: isScrolled ? 'blur(16px)' : undefined,
-          WebkitBackdropFilter: isScrolled ? 'blur(16px)' : undefined,
-          borderBottom: '1px solid var(--border)',
-          boxShadow: isScrolled ? 'var(--shadow-md)' : 'none',
+          background: isScrolled ? 'rgba(10,10,10,0.92)' : 'rgba(10,10,10,0.72)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          backdropFilter: 'blur(10px)',
         }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <Link href="/" className="flex-shrink-0 flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs"
-                style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                TX
-              </div>
-              <span className="text-xl font-black tracking-tight hidden sm:block" style={{ color: 'var(--fg)' }}>
-                THREADX
-              </span>
-            </Link>
+            <div className="flex-shrink-0 flex items-center gap-2.5">
+              <Link href="/" className="flex items-center gap-2.5">
+                <Image src="/images/War_Logo.png" alt="WAR logo" width={36} height={36} className="rounded-lg object-cover" />
+              </Link>
+            </div>
 
-            {/* Desktop Nav */}
-            <nav className="hidden md:flex items-center gap-0.5">
-              {NAV_LINKS.map((link) =>
-                link.hasDropdown ? (
-                  <div key={link.label} ref={dropdownRef} className="relative">
-                    <button
-                      onMouseEnter={() => setDropdownOpen(true)}
-                      onMouseLeave={() => setDropdownOpen(false)}
-                      onClick={() => setDropdownOpen((p) => !p)}
-                      className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium"
-                      style={{ color: 'var(--fg-muted)' }}
-                    >
-                      {link.label}
-                      <ChevronDown size={12} className={cn('transition-transform duration-200', dropdownOpen && 'rotate-180')} />
-                    </button>
-                    {dropdownOpen && (
-                      <div
-                        onMouseEnter={() => setDropdownOpen(true)}
-                        onMouseLeave={() => setDropdownOpen(false)}
-                        className="absolute top-full left-0 mt-1.5 w-52 rounded-xl overflow-hidden z-50 animate-fade-in"
-                        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}
-                      >
-                        {MEN_DROPDOWN.map((item) => (
-                          <Link key={item.label} href={item.href}
-                            onClick={() => setDropdownOpen(false)}
-                            className="block px-4 py-2.5 text-sm font-medium"
-                            style={{ color: 'var(--fg-muted)' }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--fg)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--fg-muted)'; }}
-                          >
-                            {item.label}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <Link key={link.label} href={link.href}
-                    className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                    style={{ color: link.isSale ? 'var(--danger)' : 'var(--fg-muted)', fontWeight: link.isSale ? 700 : undefined }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = link.isSale ? 'var(--danger)' : 'var(--fg)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = link.isSale ? 'var(--danger)' : 'var(--fg-muted)'; e.currentTarget.style.background = ''; }}
-                  >
-                    {link.label}
-                  </Link>
-                )
-              )}
+            {/* Desktop Nav (centered) */}
+            <nav className="hidden md:flex items-center gap-0.5 absolute left-1/2 transform -translate-x-1/2">
+              {NAV_LINKS.map((link) => (
+                <Link key={link.label} href={link.href}
+                  className="px-3 py-2 rounded-lg text-xs font-bold transition-colors"
+                  style={{ color: 'rgba(255,255,255,0.88)', letterSpacing: '0.04em' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#ffffff'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.88)'; }}
+                >
+                  {link.label}
+                </Link>
+              ))}
             </nav>
 
             {/* Actions */}
-            <div className="flex items-center gap-0.5">
-              <button onClick={() => setSearchOpen(true)} className={iconBtn}
-                style={{ color: 'var(--fg-muted)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+            <div className="flex items-center gap-0.5 ml-auto">
+              <button data-testid="header-search-trigger" onClick={() => setSearchOpen(true)} className={iconBtn}
+                style={{ color: 'rgba(255,255,255,0.85)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '')}
                 aria-label="Search">
                 <Search size={19} />
               </button>
 
-              {mounted && (
-                <button onClick={toggleTheme} className={iconBtn}
-                  style={{ color: 'var(--fg-muted)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '')}
-                  aria-label="Toggle theme">
-                  {isDark ? <Sun size={19} /> : <Moon size={19} />}
-                </button>
+              <button
+                onClick={toggleTheme}
+                className={iconBtn}
+                style={{ color: 'rgba(255,255,255,0.85)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = '')}
+                aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+                title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+              >
+                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+
+              {!isAuthenticated ? (
+                <Link href="/auth/login" className={cn(iconBtn, 'hidden sm:flex items-center justify-center')}
+                  style={{ color: 'rgba(255,255,255,0.85)' }}
+                  aria-label="Profile">
+                  <User size={19} />
+                </Link>
+              ) : (
+                <div ref={profileRef} className="hidden sm:block relative">
+                  <button
+                    type="button"
+                    onClick={() => setProfileOpen((p) => !p)}
+                    className="inline-flex items-center gap-2 px-2.5 py-2 rounded-lg"
+                    style={{ color: 'var(--fg-muted)' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '')}
+                    aria-label="Account menu"
+                  >
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
+                      style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}>
+                      {firstName.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-sm font-semibold" style={{ color: 'var(--fg)' }}>{firstName}</span>
+                    <ChevronDown size={12} className={cn('transition-transform', profileOpen && 'rotate-180')} />
+                  </button>
+
+                  {profileOpen && (
+                    <div className="absolute right-0 mt-2 w-56 rounded-xl overflow-hidden z-[70] animate-fade-in"
+                      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
+                      {[
+                        { label: 'My Profile', href: '/account/profile', icon: User },
+                        { label: 'My Orders', href: '/account/orders', icon: ShoppingBag },
+                        { label: 'Wishlist', href: '/wishlist', icon: Heart },
+                        { label: 'Saved Addresses', href: '/account/profile#addresses', icon: User },
+                        { label: 'Rewards & Coupons', href: '/account/profile#rewards', icon: Gift },
+                      ].map(({ label, href, icon: Icon }) => (
+                        <Link key={label} href={href}
+                          onClick={() => setProfileOpen(false)}
+                          className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium"
+                          style={{ color: 'var(--fg-muted)' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--fg)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = ''; e.currentTarget.style.color = 'var(--fg-muted)'; }}>
+                          <Icon size={14} />
+                          {label}
+                        </Link>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await useAuthStore.getState().logout();
+                          setProfileOpen(false);
+                          router.push('/');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium"
+                        style={{ color: 'var(--danger)', borderTop: '1px solid var(--border)' }}
+                      >
+                        <LogOut size={14} />
+                        Logout
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
 
-              <Link href={isAuthenticated ? '/account' : '/auth/login'}
-                className={cn(iconBtn, 'hidden sm:flex items-center justify-center')}
-                style={{ color: 'var(--fg-muted)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = '')}
-                aria-label="Account">
-                {mounted && isAuthenticated ? (
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold"
-                    style={{ background: 'var(--accent)', color: 'var(--accent-fg)' }}>
-                    {user?.name?.charAt(0).toUpperCase() ?? 'U'}
-                  </div>
-                ) : (
-                  <User size={19} />
-                )}
-              </Link>
-
-              <Link href="/wishlist"
-                className={cn(iconBtn, 'hidden sm:flex items-center justify-center')}
-                style={{ color: 'var(--fg-muted)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-                onMouseLeave={(e) => (e.currentTarget.style.background = '')}
-                aria-label="Wishlist">
-                <Heart size={19} />
-                {mounted && wishlistCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 text-[9px] w-4 h-4 rounded-full flex items-center justify-center font-bold"
-                    style={{ background: 'var(--danger)', color: '#fff' }}>
-                    {wishlistCount}
-                  </span>
-                )}
-              </Link>
-
               <button onClick={openCart} className={iconBtn}
-                style={{ color: 'var(--fg-muted)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+                style={{ color: 'rgba(255,255,255,0.85)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '')}
                 aria-label="Cart">
                 <ShoppingBag size={19} />
@@ -229,8 +222,8 @@ export default function Header() {
               </button>
 
               <button className={cn(iconBtn, 'md:hidden ml-0.5')}
-                style={{ color: 'var(--fg-muted)' }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+                style={{ color: 'rgba(255,255,255,0.85)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '')}
                 onClick={() => setMobileOpen((p) => !p)}
                 aria-label="Menu">
@@ -248,23 +241,31 @@ export default function Header() {
               <Link key={link.label} href={link.href}
                 onClick={() => setMobileOpen(false)}
                 className="block px-3 py-2.5 rounded-lg text-sm font-medium"
-                style={{ color: link.isSale ? 'var(--danger)' : 'var(--fg)' }}
+                style={{ color: 'var(--fg)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-elevated)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '')}>
                 {link.label}
               </Link>
             ))}
+            <button
+              type="button"
+              onClick={() => toggleTheme()}
+              className="w-full mt-2 px-3 py-2.5 rounded-lg text-sm font-medium text-left"
+              style={{ color: 'var(--fg)', background: 'var(--bg-elevated)' }}
+            >
+              {theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+            </button>
             <div className="pt-3 mt-2 grid grid-cols-2 gap-2" style={{ borderTop: '1px solid var(--border)' }}>
-              <Link href={isAuthenticated ? '/account' : '/auth/login'}
+              <Link href={isAuthenticated ? '/account/profile' : '/auth/login'}
                 onClick={() => setMobileOpen(false)}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium"
                 style={{ color: 'var(--fg-muted)', background: 'var(--bg-elevated)' }}>
                 <User size={15} /> Account
               </Link>
-              <Link href="/wishlist" onClick={() => setMobileOpen(false)}
+              <Link href="/cart" onClick={() => setMobileOpen(false)}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium"
                 style={{ color: 'var(--fg-muted)', background: 'var(--bg-elevated)' }}>
-                <Heart size={15} /> Wishlist
+                <ShoppingBag size={15} /> Cart
               </Link>
             </div>
           </div>
@@ -280,7 +281,7 @@ export default function Header() {
             style={{ background: 'var(--bg-card)', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border)' }}>
             <form onSubmit={handleSearch} className="flex items-center gap-3 px-5 py-4">
               <Search size={20} style={{ color: 'var(--fg-subtle)', flexShrink: 0 }} />
-              <input ref={searchInputRef} type="text" value={searchQuery}
+              <input data-testid="header-search-input" ref={searchInputRef} type="text" value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search t-shirts, styles, colours..."
                 className="flex-1 text-base outline-none bg-transparent"

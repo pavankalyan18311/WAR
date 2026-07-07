@@ -9,9 +9,17 @@ import type { Database } from './database.types';
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  // If Supabase env vars are not configured, skip auth and just set pathname header
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || supabaseUrl.startsWith('your-') || !supabaseAnonKey || supabaseAnonKey.startsWith('your-')) {
+    supabaseResponse.headers.set('x-pathname', request.nextUrl.pathname);
+    return supabaseResponse;
+  }
+
   const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {

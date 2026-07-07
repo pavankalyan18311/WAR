@@ -60,11 +60,11 @@ export default function TryOnPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8">
+    <div className="max-w-4xl mx-auto px-5 sm:px-8 py-12">
       {/* Header */}
-      <div className="text-center mb-10">
-        <h1 className="text-3xl sm:text-4xl font-black text-gray-900">VIRTUAL TRY-ON</h1>
-        <p className="text-gray-500 mt-2">See how this t-shirt looks on you</p>
+      <div className="text-center mb-8">
+        <h1 className="text-2xl sm:text-3xl font-black text-gray-900">Size Guide</h1>
+        <p className="text-gray-500 mt-2">Guidance to pick the perfect oversized fit — measurements & conversions.</p>
       </div>
 
       {/* Step Indicator */}
@@ -85,118 +85,34 @@ export default function TryOnPage() {
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8">
+      <div className="grid lg:grid-cols-1 gap-8">
         {/* Left Panel */}
         <div className="space-y-5">
-          {/* Step 1: Upload */}
-          <div className={cn('bg-white border rounded-2xl p-6 transition-opacity', currentStep > 1 ? 'opacity-60' : '')}>
-            <h2 className="font-bold text-base mb-4 flex items-center gap-2">
-              <span className="w-6 h-6 bg-black text-white rounded-full text-xs flex items-center justify-center">1</span>
-              Upload Your Photo
-            </h2>
-
-            {photo ? (
-              <div className="flex items-center gap-4">
-                <div className="relative w-20 h-24 rounded-xl overflow-hidden">
-                  <Image src={photo} alt="Uploaded" fill className="object-cover" sizes="80px" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-green-600 flex items-center gap-1">
-                    <CheckCircle size={14} /> Photo uploaded
-                  </p>
-                  <button
-                    onClick={() => { setPhoto(null); setCurrentStep(1); setIsDone(false); }}
-                    className="text-xs text-gray-500 underline mt-1"
-                  >
-                    Change photo
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                onClick={() => fileRef.current?.click()}
-                className="border-2 border-dashed border-gray-200 rounded-2xl p-10 text-center cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors"
-              >
-                <Camera size={32} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-sm font-medium text-gray-700">Click to upload your photo</p>
-                <p className="text-xs text-gray-400 mt-1">JPEG, PNG, WebP — max 10 MB</p>
-                <p className="text-xs text-gray-400">Best: full-body, well-lit, plain background</p>
-                <button className="mt-4 bg-black text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-gray-900 transition-colors flex items-center gap-2 mx-auto">
-                  <Upload size={14} /> Choose File
-                </button>
-              </div>
-            )}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-
-            {photo && currentStep === 1 && (
-              <button
-                onClick={() => setCurrentStep(2)}
-                className="mt-4 w-full bg-black text-white py-3 rounded-full font-bold text-sm hover:bg-gray-900 transition-colors"
-              >
-                Continue to Measurements
-              </button>
-            )}
-          </div>
-
-          {/* Step 2: Measurements */}
-          {currentStep >= 2 && (
-            <div className="bg-white border border-gray-100 rounded-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-base flex items-center gap-2">
-                  <span className="w-6 h-6 bg-black text-white rounded-full text-xs flex items-center justify-center">2</span>
-                  Your Measurements
-                </h2>
-                <button className="text-xs text-gray-500 flex items-center gap-1 hover:text-black">
-                  <Edit size={12} /> Edit
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { key: 'height', label: 'Height', unit: 'cm' },
-                  { key: 'weight', label: 'Weight', unit: 'kg' },
-                  { key: 'chest', label: 'Chest', unit: 'inch' },
-                  { key: 'shoulder', label: 'Shoulder', unit: 'inch' },
-                  { key: 'waist', label: 'Waist', unit: 'inch' },
-                ].map(({ key, label, unit }) => (
-                  <div key={key}>
-                    <label className="text-xs text-gray-500 block mb-1">{label}</label>
-                    <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
-                      <input
-                        type="number"
-                        value={measurements[key as keyof typeof measurements]}
-                        onChange={(e) => setMeasurements({ ...measurements, [key]: e.target.value })}
-                        className="flex-1 px-3 py-2 text-sm outline-none text-gray-900"
-                      />
-                      <span className="bg-gray-50 border-l border-gray-200 px-2 py-2 text-xs text-gray-500">{unit}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex items-start gap-2 mt-3 text-xs text-gray-400 bg-gray-50 rounded-lg p-3">
-                <Info size={12} className="mt-0.5 flex-shrink-0" />
-                <p>Measurements are optional but improve accuracy. If not provided, our AI estimates them from your photo.</p>
-              </div>
-
-              {!isDone && (
-                <button
-                  onClick={handleProcess}
-                  disabled={isProcessing}
-                  className="mt-4 w-full bg-black text-white py-3.5 rounded-full font-bold text-sm hover:bg-gray-900 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                >
-                  {isProcessing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Processing AI Pipeline...
-                    </>
-                  ) : (
-                    'Generate Try-On'
-                  )}
-                </button>
-              )}
+          {/* Size Guide Content (replaces AI Try-On) */}
+          <div className="bg-white border rounded-2xl p-6">
+            <h2 className="font-bold text-base mb-4">How to measure</h2>
+            <p className="text-sm text-gray-600 mb-4">Measure your chest, shoulder and waist using a measuring tape. Use the table below to convert to our sizes.</p>
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-left text-xs text-gray-500 border-b">
+                  <th className="py-2">Size</th>
+                  <th className="py-2">Chest (in)</th>
+                  <th className="py-2">Shoulder (in)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td className="py-2">S</td><td className="py-2">36-38</td><td className="py-2">16-17</td></tr>
+                <tr><td className="py-2">M</td><td className="py-2">38-40</td><td className="py-2">17-18</td></tr>
+                <tr><td className="py-2">L</td><td className="py-2">40-42</td><td className="py-2">18-19</td></tr>
+                <tr><td className="py-2">XL</td><td className="py-2">42-44</td><td className="py-2">19-20</td></tr>
+                <tr><td className="py-2">XXL</td><td className="py-2">44-46</td><td className="py-2">20-21</td></tr>
+              </tbody>
+            </table>
+            <div className="mt-6 flex gap-3">
+              <Link href="/products" className="flex-1 bg-black text-white py-3 rounded-full text-sm font-bold text-center">Shop Oversized</Link>
+              <Link href="/contact" className="flex-1 border border-gray-200 py-3 rounded-full text-sm font-medium text-center">Need help?</Link>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Right Panel — Result */}

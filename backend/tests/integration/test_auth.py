@@ -24,6 +24,19 @@ class TestRegister:
         assert data["user"]["role"] == "customer"
 
     @pytest.mark.asyncio
+    async def test_register_without_phone_marks_user_verified(self, client: AsyncClient):
+        res = await client.post("/api/auth/register", json={
+            "name": "Email OTP User",
+            "email": "email-otp@threadx.com",
+            "password": "Secure1234!",
+        })
+        assert res.status_code == 201
+        data = res.json()
+        assert data["user"]["email"] == "email-otp@threadx.com"
+        assert data["user"]["phone"] is None
+        assert data["user"]["is_verified"] is True
+
+    @pytest.mark.asyncio
     async def test_register_duplicate_email_returns_409(self, client: AsyncClient):
         payload = {"name": "Dup User", "email": "dup@threadx.com", "password": "Secure1234!"}
         await client.post("/api/auth/register", json=payload)
@@ -64,6 +77,24 @@ class TestLogin:
         assert "access_token" in data
         assert data["token_type"] == "bearer"
         assert data["user"]["email"] == "test@threadx.com"
+
+    @pytest.mark.asyncio
+    async def test_login_email_only_registered_user_requires_no_otp(self, client: AsyncClient):
+        register_res = await client.post("/api/auth/register", json={
+            "name": "Email Only User",
+            "email": "email-only-login@threadx.com",
+            "password": "Secure1234!",
+        })
+        assert register_res.status_code == 201
+
+        login_res = await client.post("/api/auth/login", json={
+            "email": "email-only-login@threadx.com",
+            "password": "Secure1234!",
+        })
+        assert login_res.status_code == 200
+        login_data = login_res.json()
+        assert "access_token" in login_data
+        assert login_data["user"]["email"] == "email-only-login@threadx.com"
 
     @pytest.mark.asyncio
     async def test_login_wrong_password_returns_401(self, client: AsyncClient, test_user):

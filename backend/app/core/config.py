@@ -41,9 +41,10 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
 
-    # Payment
+    # Payment — Razorpay
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
+    RAZORPAY_WEBHOOK_SECRET: str = ""  # Set in Razorpay Dashboard → Webhooks
 
     # Email
     SMTP_HOST: str = "smtp.gmail.com"
@@ -51,6 +52,21 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     EMAIL_FROM: str = "noreply@threadx.com"
+
+    # MSG91 OTP
+    MSG91_AUTH_KEY: str = ""
+    MSG91_WIDGET_ID: str = ""
+    MSG91_TEMPLATE_ID: str = ""  # DLT-approved template id
+    MSG91_DLT_REQUIRED: bool = True
+    MSG91_VERIFY_SSL: bool = True
+
+    # Resend email OTP
+    RESEND_API_KEY: str = ""
+    RESEND_VERIFY_SSL: bool = True
+
+    # Supabase (optional — for future token verification)
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
 
     @property
     def allowed_origins_list(self) -> List[str]:

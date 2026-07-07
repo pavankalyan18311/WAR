@@ -1,8 +1,17 @@
 import type { NextConfig } from 'next';
 
+const backendOrigin = process.env.BACKEND_ORIGIN || 'http://localhost:8000';
+const extraDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
-  // 'standalone' is for Docker/self-hosting — Vercel handles its own output
+  // Allow ephemeral Cloudflare tunnel hosts in dev so no config edits are needed per run.
+  allowedDevOrigins: ['https://*.trycloudflare.com', ...extraDevOrigins],
+
   images: {
+    unoptimized: process.env.NODE_ENV === 'development',
     remotePatterns: [
       {
         protocol: 'https',
@@ -13,18 +22,44 @@ const nextConfig: NextConfig = {
         hostname: '**.amazonaws.com',
       },
       {
-        // Supabase Storage
         protocol: 'https',
         hostname: '**.supabase.co',
       },
       {
-        // Supabase Storage (custom domains)
         protocol: 'https',
         hostname: '**.supabase.in',
       },
+      {
+        protocol: 'https',
+        hostname: 'i.pravatar.cc',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.trycloudflare.com',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+      {
+        protocol: 'http',
+        hostname: '127.0.0.1',
+      },
+      {
+        protocol: 'http',
+        hostname: 'backend',
+      },
     ],
+  },
+
+  async rewrites() {
+    return [
+      {
+        source: '/backend/:path*',
+        destination: `${backendOrigin}/:path*`,
+      },
+    ];
   },
 };
 
 export default nextConfig;
-

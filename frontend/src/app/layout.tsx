@@ -6,7 +6,9 @@ import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import CartDrawer from '@/components/cart/CartDrawer';
 import ChatWidget from '@/components/chat/ChatWidget';
+import PremiumAuthModal from '@/components/auth/PremiumAuthModal';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import PageTransition from '@/components/ui/PageTransition';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -19,10 +21,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'ThreadX — Premium AI-Powered Men\'s Fashion',
+  title: 'WAR — Premium Oversized T-Shirts',
   description:
-    'Shop premium men\'s t-shirts with AI Virtual Try-On, Size Recommendation, and Personal Stylist. ThreadX — Made for the modern man.',
-  keywords: 'men t-shirts, oversized, premium cotton, AI try-on, ThreadX',
+    'Shop premium oversized t-shirts. Focused on fit, fabric and timeless design. WAR — Made for the streets.',
+  keywords: 'men t-shirts, oversized, premium cotton, WAR',
 };
 
 export default async function RootLayout({
@@ -33,6 +35,7 @@ export default async function RootLayout({
   const hdrs = await headers();
   const pathname = hdrs.get('x-pathname') ?? '';
   const isAdmin = pathname.startsWith('/admin');
+  const isAuthPage = pathname.startsWith('/auth');
 
   return (
     <html
@@ -43,10 +46,13 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
         <ThemeProvider>
           {!isAdmin && <Header />}
-          <div className={isAdmin ? 'flex-1' : 'flex-1'}>{children}</div>
+          <div className="flex-1">
+            <PageTransition>{children}</PageTransition>
+          </div>
           {!isAdmin && <Footer />}
           {!isAdmin && <CartDrawer />}
           {!isAdmin && <ChatWidget />}
+          {!isAdmin && !isAuthPage && <PremiumAuthModal />}
         </ThemeProvider>
       </body>
     </html>

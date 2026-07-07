@@ -1,12 +1,92 @@
-import type { Product, Category } from '@/types';
+import type { Product, Category, Order } from '@/types';
 
 export const CATEGORIES: Category[] = [
-  { id: 1, name: 'Oversized', slug: 'oversized', description: 'Relaxed, dropped-shoulder fits', itemCount: 32 },
-  { id: 2, name: 'Graphic', slug: 'graphic', description: 'Printed & illustrated designs', itemCount: 28 },
-  { id: 3, name: 'Plain', slug: 'plain', description: 'Classic everyday silhouettes', itemCount: 45 },
-  { id: 4, name: 'Polo', slug: 'polo', description: 'Collar polo styles', itemCount: 18 },
-  { id: 5, name: 'Premium', slug: 'premium', description: 'Elevated fabrics and finishing', itemCount: 22 },
+  { id: 1, name: 'Oversized', slug: 'oversized', description: 'Relaxed, dropped-shoulder fits — premium cotton, boxy silhouettes.', itemCount: 32 },
 ];
+
+export interface Collection {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  longDescription: string;
+  banner: string;
+  thumbnail: string;
+  productCount: number;
+  tag?: string;
+  categoryIds: number[];
+}
+
+export const COLLECTIONS: Collection[] = [
+  {
+    id: 'col-1',
+    name: 'Oversized Fits',
+    slug: 'oversized',
+    description: 'Boxy, relaxed silhouettes for the streetwear-forward man.',
+    longDescription: 'Drop the shoulders. Embrace the drape. Our Oversized Fits collection is built for those who move through the world with ease — premium 240 GSM cotton, boxy cuts, and lengths that fall just right.',
+    banner: 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=1400&q=80',
+    thumbnail: 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=600&q=80',
+    productCount: 18,
+    tag: 'Trending',
+    categoryIds: [1],
+  },
+  {
+    id: 'col-2',
+    name: 'Classic Essentials',
+    slug: 'classic',
+    description: 'Timeless everyday basics built to last.',
+    longDescription: 'The foundation of every wardrobe. Our Classic Essentials are cut clean, woven tight, and finished to outlast every trend. Plain, polo, and everything in between.',
+    banner: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1400&q=80',
+    thumbnail: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&q=80',
+    productCount: 24,
+    categoryIds: [3, 4],
+  },
+  {
+    id: 'col-3',
+    name: 'Graphic Series',
+    slug: 'graphic',
+    description: 'Bold prints and artistic statements.',
+    longDescription: 'Art on fabric. The Graphic Series collaborates with independent artists to bring you limited-run prints on premium tees. Each drop is unique — once it\'s gone, it\'s gone.',
+    banner: 'https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?w=1400&q=80',
+    thumbnail: 'https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?w=600&q=80',
+    productCount: 12,
+    tag: 'New',
+    categoryIds: [2],
+  },
+  {
+    id: 'col-4',
+    name: 'Premium Collection',
+    slug: 'premium',
+    description: 'Luxe fabrics — Pima cotton, modal blends, and more.',
+    longDescription: 'For those who know the difference. The Premium Collection uses only the finest Pima cotton and modal blends — softer, stronger, and noticeably better. Wear it and feel it.',
+    banner: 'https://images.unsplash.com/photo-1503341455253-b2e723bb3dbb?w=1400&q=80',
+    thumbnail: 'https://images.unsplash.com/photo-1503341455253-b2e723bb3dbb?w=600&q=80',
+    productCount: 9,
+    tag: 'Luxury',
+    categoryIds: [5],
+  },
+  {
+    id: 'col-5',
+    name: 'Summer Edit',
+    slug: 'summer',
+    description: 'Light, breathable picks for the hot season.',
+    longDescription: 'Stay cool without compromising style. The Summer Edit brings you the lightest, most breathable tees — perfect for beach days, city strolls, or just sweating less.',
+    banner: 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=1400&q=80',
+    thumbnail: 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600&q=80',
+    productCount: 7,
+    categoryIds: [1, 2, 3],
+  },
+];
+
+export function getCollectionBySlug(slug: string): Collection | undefined {
+  return COLLECTIONS.find((c) => c.slug === slug);
+}
+
+export function getProductsForCollection(collection: Collection): Product[] {
+  return MOCK_PRODUCTS.filter((p) => collection.categoryIds.includes(p.category_id));
+}
+
+
 
 const COLORS = [
   { name: 'Black', hex: '#111111' },
@@ -276,3 +356,116 @@ export const getProductsByCategory = (categorySlug: string) =>
   MOCK_PRODUCTS.filter((p) => p.category?.slug === categorySlug);
 export const getBestSellers = () =>
   [...MOCK_PRODUCTS].sort((a, b) => (b.review_count ?? 0) - (a.review_count ?? 0)).slice(0, 4);
+
+// ─── Mock Orders ──────────────────────────────────────────────────────────────
+export const MOCK_ORDERS: Order[] = [
+  {
+    order_id: 'ord-001',
+    order_number: 'TXN-2026-8821',
+    user_id: 'u1',
+    items: [
+      {
+        product: MOCK_PRODUCTS[0],
+        variant: MOCK_PRODUCTS[0].variants![1],
+        quantity: 2,
+        unit_price: 899,
+      },
+    ],
+    status: 'delivered',
+    payment_method: 'upi',
+    payment_status: 'paid',
+    shipping_address: {
+      address_id: 'addr-1',
+      full_name: 'Demo User',
+      phone: '+91 98765 43210',
+      address_line_1: '42 Koramangala 4th Block',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560034',
+      country: 'India',
+      is_default: true,
+    },
+    subtotal: 1798,
+    discount: 200,
+    shipping: 0,
+    tax: 0,
+    total: 1598,
+    coupon_code: 'FIRST10',
+    created_at: '2026-05-20T10:30:00Z',
+    updated_at: '2026-05-24T16:00:00Z',
+  },
+  {
+    order_id: 'ord-002',
+    order_number: 'TXN-2026-9104',
+    user_id: 'u1',
+    items: [
+      {
+        product: MOCK_PRODUCTS[3],
+        variant: MOCK_PRODUCTS[3].variants![2],
+        quantity: 1,
+        unit_price: MOCK_PRODUCTS[3].discount_price ?? MOCK_PRODUCTS[3].price,
+      },
+      {
+        product: MOCK_PRODUCTS[6],
+        variant: MOCK_PRODUCTS[6].variants![1],
+        quantity: 1,
+        unit_price: MOCK_PRODUCTS[6].discount_price ?? MOCK_PRODUCTS[6].price,
+      },
+    ],
+    status: 'shipped',
+    payment_method: 'card',
+    payment_status: 'paid',
+    shipping_address: {
+      address_id: 'addr-1',
+      full_name: 'Demo User',
+      phone: '+91 98765 43210',
+      address_line_1: '42 Koramangala 4th Block',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560034',
+      country: 'India',
+      is_default: true,
+    },
+    subtotal: (MOCK_PRODUCTS[3].discount_price ?? MOCK_PRODUCTS[3].price) + (MOCK_PRODUCTS[6].discount_price ?? MOCK_PRODUCTS[6].price),
+    discount: 0,
+    shipping: 0,
+    tax: 0,
+    total: (MOCK_PRODUCTS[3].discount_price ?? MOCK_PRODUCTS[3].price) + (MOCK_PRODUCTS[6].discount_price ?? MOCK_PRODUCTS[6].price),
+    created_at: '2026-06-08T14:20:00Z',
+    updated_at: '2026-06-10T09:15:00Z',
+  },
+  {
+    order_id: 'ord-003',
+    order_number: 'TXN-2026-9312',
+    user_id: 'u1',
+    items: [
+      {
+        product: MOCK_PRODUCTS[1],
+        variant: MOCK_PRODUCTS[1].variants![1],
+        quantity: 1,
+        unit_price: 899,
+      },
+    ],
+    status: 'confirmed',
+    payment_method: 'cod',
+    payment_status: 'pending',
+    shipping_address: {
+      address_id: 'addr-1',
+      full_name: 'Demo User',
+      phone: '+91 98765 43210',
+      address_line_1: '42 Koramangala 4th Block',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560034',
+      country: 'India',
+      is_default: true,
+    },
+    subtotal: 899,
+    discount: 0,
+    shipping: 79,
+    tax: 0,
+    total: 978,
+    created_at: '2026-06-11T18:45:00Z',
+    updated_at: '2026-06-12T08:00:00Z',
+  },
+];

@@ -16,17 +16,27 @@ export default function CartPage() {
   const [couponSuccess, setCouponSuccess] = useState('');
   const summary = getSummary();
 
+  const COUPONS: Record<string, { type: 'percent' | 'flat'; value: number; label: string }> = {
+    SUMMER20: { type: 'percent', value: 20, label: '20% off' },
+    WELCOME10: { type: 'percent', value: 10, label: '10% off' },
+    FIRST10: { type: 'percent', value: 10, label: '10% off your first order' },
+    SAVE15: { type: 'percent', value: 15, label: '15% off' },
+    FLAT100: { type: 'flat', value: 100, label: '₹100 off' },
+    FLAT200: { type: 'flat', value: 200, label: '₹200 off' },
+  };
+
   const handleCoupon = () => {
-    if (couponInput.toUpperCase() === 'SUMMER20') {
-      applyCoupon('SUMMER20', Math.round(summary.subtotal * 0.2));
-      setCouponSuccess('20% discount applied!');
-      setCouponError('');
-    } else if (couponInput.toUpperCase() === 'WELCOME10') {
-      applyCoupon('WELCOME10', Math.round(summary.subtotal * 0.1));
-      setCouponSuccess('10% discount applied!');
+    const code = couponInput.toUpperCase().trim();
+    const coupon = COUPONS[code];
+    if (coupon) {
+      const discount = coupon.type === 'percent'
+        ? Math.round(summary.subtotal * coupon.value / 100)
+        : Math.min(coupon.value, summary.subtotal);
+      applyCoupon(code, discount);
+      setCouponSuccess(`${coupon.label} applied!`);
       setCouponError('');
     } else {
-      setCouponError('Invalid coupon. Try SUMMER20 or WELCOME10.');
+      setCouponError('Invalid coupon code. Try SUMMER20, FIRST10, or FLAT100.');
       setCouponSuccess('');
     }
   };
@@ -211,9 +221,9 @@ export default function CartPage() {
                     Have a coupon?
                   </p>
                   <div className="flex gap-2">
-                    <input type="text" value={couponInput}
+                    <input data-testid="cart-coupon-input" type="text" value={couponInput}
                       onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      placeholder="SUMMER20 or WELCOME10"
+                      placeholder="e.g. SUMMER20, FIRST10"
                       className="flex-1 px-3 py-2 rounded-xl text-xs font-medium outline-none"
                       style={{ background: 'var(--bg-elevated)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}
                       onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--ring)')}

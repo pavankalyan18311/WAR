@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { MapPin, CreditCard, CheckCircle, ArrowLeft, ArrowRight, ShieldCheck, Lock, Smartphone, Building2 } from 'lucide-react';
+import { MapPin, CreditCard, CheckCircle, ArrowLeft, ArrowRight, ShieldCheck, Lock, Smartphone, Building2, AlertCircle } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { formatPrice } from '@/lib/utils';
+import { useRazorpay } from '@/hooks/useRazorpay';
+import api from '@/lib/api';
 
 const STEPS = [
   { id: 1, label: 'Delivery', icon: MapPin },
@@ -26,14 +28,54 @@ interface AddressForm {
   state: string; pincode: string;
 }
 
+interface SavedAddress {
+  id: string;
+  label: 'Home' | 'Work' | 'Other';
+  fullName: string;
+  phone: string;
+  addressLine1: string;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault?: boolean;
+}
+
+const SAVED_ADDRESSES: SavedAddress[] = [
+  {
+    id: 'addr-home',
+    label: 'Home',
+    fullName: 'Arjun Sharma',
+    phone: '+91 98765 43210',
+    addressLine1: '42 Koramangala 4th Block',
+    city: 'Bengaluru',
+    state: 'Karnataka',
+    pincode: '560034',
+    isDefault: true,
+  },
+  {
+    id: 'addr-work',
+    label: 'Work',
+    fullName: 'Arjun Sharma',
+    phone: '+91 98765 43210',
+    addressLine1: '14th Floor, RMZ Infinity, Old Madras Road',
+    city: 'Bengaluru',
+    state: 'Karnataka',
+    pincode: '560016',
+  },
+];
+
 export default function CheckoutPage() {
   const { items, getSummary, couponCode } = useCartStore();
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState('upi');
+  const [selectedSavedAddressId, setSelectedSavedAddressId] = useState<string | null>(
+    SAVED_ADDRESSES.find((a) => a.isDefault)?.id ?? null
+  );
   const [orderPlaced, setOrderPlaced] = useState(false);
-  const [orderRef] = useState(() => `TX${Date.now().toString(36).toUpperCase()}`);
+  const [orderRef, setOrderRef] = useState('');
   const [placing, setPlacing] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const summary = getSummary();
 
   const [address, setAddress] = useState<AddressForm>({
@@ -43,11 +85,72 @@ export default function CheckoutPage() {
 
   useEffect(() => { setMounted(true); }, []);
 
+  useEffect(() => {
+    const selected = SAVED_ADDRESSES.find((a) => a.id === selectedSavedAddressId);
+    if (!selected) return;
+    const [firstName = '', ...lastParts] = selected.fullName.split(' ');
+    setAddress((prev) => ({
+      ...prev,
+      firstName,
+      lastName: lastParts.join(' '),
+      phone: selected.phone,
+      address: selected.addressLine1,
+      city: selected.city,
+      state: selected.state,
+      pincode: selected.pincode,
+    }));
+  }, [selectedSavedAddressId]);
+
+  // Build delivery address for the Razorpay hook
+  const deliveryAddress = useMemo(() => ({
+    full_name: `${address.firstName} ${address.lastName}`.trim(),
+    phone: address.phone,
+    address_line1: address.address,
+    city: address.city,
+    state: address.state,
+    pincode: address.pincode,
+  }), [address]);
+
+  const { initiatePayment, loading: rzpLoading } = useRazorpay({
+    couponCode: couponCode ?? undefined,
+    deliveryAddress,
+    onSuccess: (orderNumber) => {
+      setOrderRef(orderNumber);
+      setPlacing(false);
+      setOrderPlaced(true);
+    },
+    onFailure: (msg) => {
+      setPaymentError(msg);
+      setPlacing(false);
+    },
+    onDismiss: () => setPlacing(false),
+  });
+
   const handlePlaceOrder = async () => {
+    setPaymentError(null);
     setPlacing(true);
-    await new Promise((r) => setTimeout(r, 1600));
-    setPlacing(false);
-    setOrderPlaced(true);
+
+    if (paymentMethod === 'cod') {
+      // Cash on Delivery — create order directly without Razorpay
+      try {
+        const { data } = await api.post('/orders', {
+          payment_method: 'cod',
+          delivery_address: deliveryAddress,
+          coupon_code: couponCode ?? null,
+        });
+        setOrderRef(data.order_number);
+        setOrderPlaced(true);
+      } catch (err: unknown) {
+        const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          || 'Failed to place order. Please try again.';
+        setPaymentError(msg);
+      } finally {
+        setPlacing(false);
+      }
+    } else {
+      // UPI / Card / Net Banking → Razorpay popup
+      await initiatePayment();
+    }
   };
 
   if (orderPlaced) {
@@ -135,6 +238,44 @@ export default function CheckoutPage() {
             <div className="rounded-2xl p-6"
               style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
               <h2 className="font-black mb-5" style={{ color: 'var(--fg)' }}>Delivery Address</h2>
+
+              <div className="mb-5">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--fg-muted)' }}>
+                  Saved Addresses
+                </p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {SAVED_ADDRESSES.map((saved) => {
+                    const active = selectedSavedAddressId === saved.id;
+                    return (
+                      <button
+                        key={saved.id}
+                        type="button"
+                        onClick={() => setSelectedSavedAddressId(saved.id)}
+                        className="text-left rounded-xl p-3 transition-all"
+                        style={{
+                          border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                          background: active ? 'color-mix(in srgb, var(--primary) 8%, transparent)' : 'var(--bg-elevated)',
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold" style={{ color: 'var(--fg)' }}>{saved.label}</span>
+                          {saved.isDefault && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs" style={{ color: 'var(--fg-muted)' }}>{saved.fullName}</p>
+                        <p className="text-xs mt-0.5" style={{ color: 'var(--fg-subtle)' }}>
+                          {saved.addressLine1}, {saved.city} - {saved.pincode}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { key: 'firstName', label: 'First Name', colSpan: 1 },
@@ -235,19 +376,28 @@ export default function CheckoutPage() {
                   </div>
                 ))}
               </div>
+              {paymentError && (
+                <div className="mb-4 flex items-start gap-2 rounded-xl px-4 py-3 text-sm"
+                  style={{ background: 'color-mix(in srgb, #ef4444 10%, transparent)', border: '1px solid #ef4444', color: '#ef4444' }}>
+                  <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
+                  <span>{paymentError}</span>
+                </div>
+              )}
               <div className="flex gap-3">
                 <button onClick={() => setStep(2)}
                   className="flex-1 py-3.5 rounded-full font-bold text-sm"
                   style={{ border: '1.5px solid var(--border)', color: 'var(--fg-muted)' }}>
                   Back
                 </button>
-                <button onClick={handlePlaceOrder} disabled={placing}
+                <button onClick={handlePlaceOrder} disabled={placing || rzpLoading}
                   className="flex-1 py-3.5 rounded-full font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
                   style={{ background: '#16a34a', color: '#fff' }}>
-                  {placing ? (
+                  {placing || rzpLoading ? (
                     <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  ) : paymentMethod === 'cod' ? (
+                    <>Place Order (COD) <CheckCircle size={15} /></>
                   ) : (
-                    <>Place Order <CheckCircle size={15} /></>
+                    <>Pay Now <Lock size={14} /></>
                   )}
                 </button>
               </div>
@@ -291,7 +441,7 @@ export default function CheckoutPage() {
               </div>
               {mounted && summary.discount > 0 && (
                 <div className="flex justify-between" style={{ color: 'var(--success)' }}>
-                  <span>Discount</span>
+                  <span>Discount {couponCode ? `(${couponCode})` : ''}</span>
                   <span>-{formatPrice(summary.discount)}</span>
                 </div>
               )}

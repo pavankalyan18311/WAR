@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import ProductsPage from './ProductsPage';
+import { ProductGridSkeleton } from '@/components/ui/Skeleton';
 
 export const metadata = {
   title: 'Shop T-Shirts — ThreadX',
@@ -9,8 +10,13 @@ export const metadata = {
 export default function Page() {
   return (
     <Suspense fallback={
-      <div className="max-w-7xl mx-auto px-5 py-16 text-center">
-        <div className="w-8 h-8 border-2 border-gray-200 border-t-black rounded-full animate-spin mx-auto" />
+      <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8">
+        <div className="flex gap-6">
+          <div className="hidden lg:block w-56 flex-shrink-0" />
+          <div className="flex-1">
+            <ProductGridSkeleton count={9} />
+          </div>
+        </div>
       </div>
     }>
       <ProductsPage />

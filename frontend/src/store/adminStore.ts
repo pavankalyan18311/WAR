@@ -18,6 +18,23 @@ interface AdminStore {
   logout: () => void;
 }
 
+// ── Mock credentials (used when Supabase is not yet configured) ──────────────
+const MOCK_ADMINS: Record<string, { password: string; user: AdminUser }> = {
+  'admin@threadx.in': {
+    password: 'admin123',
+    user: { id: 'mock-1', name: 'Admin', email: 'admin@threadx.in', role: 'super_admin' },
+  },
+  'manager@threadx.in': {
+    password: 'manager123',
+    user: { id: 'mock-2', name: 'Manager', email: 'manager@threadx.in', role: 'manager' },
+  },
+};
+
+const isSupabaseConfigured = () => {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  return url.startsWith('https://') && !url.startsWith('your-');
+};
+
 export const useAdminStore = create<AdminStore>()(
   persist(
     (set) => ({
@@ -27,6 +44,19 @@ export const useAdminStore = create<AdminStore>()(
 
       login: async (email, password) => {
         set({ isLoading: true });
+
+        // ── Fallback: mock auth when Supabase is not configured ──────────────
+        if (!isSupabaseConfigured()) {
+          const mock = MOCK_ADMINS[email.toLowerCase()];
+          if (mock && mock.password === password) {
+            set({ admin: mock.user, isAuthenticated: true, isLoading: false });
+            return true;
+          }
+          set({ isLoading: false });
+          return false;
+        }
+
+        // ── Real Supabase auth ───────────────────────────────────────────────
         try {
           const supabase = createClient();
           const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -39,7 +69,7 @@ export const useAdminStore = create<AdminStore>()(
             .single();
 
           const p = profile as { id: string; name: string; email: string; role: string; avatar_url: string | null } | null;
-          if (!p || !['admin', 'super_admin'].includes(p.role)) {
+          if (!p || !['admin', 'super_admin', 'manager'].includes(p.role)) {
             await supabase.auth.signOut();
             set({ isLoading: false });
             return false;
@@ -64,8 +94,10 @@ export const useAdminStore = create<AdminStore>()(
       },
 
       logout: async () => {
-        const supabase = createClient();
-        await supabase.auth.signOut();
+        if (isSupabaseConfigured()) {
+          const supabase = createClient();
+          await supabase.auth.signOut();
+        }
         set({ admin: null, isAuthenticated: false });
       },
     }),

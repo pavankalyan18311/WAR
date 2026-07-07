@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
@@ -8,32 +8,27 @@ import { useAuthStore } from '@/store/authStore';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuthStore();
+  const { login, isLoading, isAuthenticated } = useAuthStore();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/');
+    }
+  }, [isAuthenticated, router]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
     try {
       await login(email, password);
       router.push('/');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Login failed';
-      // Surface friendly messages for common Supabase errors
-      if (msg.includes('Invalid login credentials')) {
-        setError('Invalid email or password.');
-      } else if (msg.includes('Email not confirmed')) {
-        setError('Please confirm your email before signing in.');
-      } else {
-        setError(msg);
-      }
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
     }
   };
 
@@ -50,7 +45,7 @@ export default function LoginPage() {
             TX
           </div>
           <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>THREADX</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Sign in to your account</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Sign in with email and password</p>
         </div>
 
         {/* Card */}
@@ -63,13 +58,12 @@ export default function LoginPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Email */}
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: 'var(--fg-muted)' }}>Email</label>
+              <label className="text-xs font-bold uppercase tracking-wide mb-1.5 block" style={{ color: 'var(--fg-muted)' }}>Email Address</label>
               <div className={inputWrap}>
                 <Mail size={15} className="absolute left-3.5 pointer-events-none" style={{ color: 'var(--fg-subtle)' }} />
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                <input data-testid="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                   required placeholder="you@example.com"
                   className={inputBase}
                   style={{ background: 'var(--bg-elevated)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}
@@ -79,7 +73,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Password */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--fg-muted)' }}>Password</label>
@@ -90,7 +83,7 @@ export default function LoginPage() {
               </div>
               <div className={inputWrap}>
                 <Lock size={15} className="absolute left-3.5 pointer-events-none" style={{ color: 'var(--fg-subtle)' }} />
-                <input type={showPw ? 'text' : 'password'} value={password}
+                <input data-testid="auth-password" type={showPw ? 'text' : 'password'} value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required placeholder="••••••••"
                   className={inputBase}
@@ -106,10 +99,10 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <button type="submit" disabled={loading}
+            <button type="submit" disabled={isLoading}
               className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 mt-2"
               style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              {loading ? (
+              {isLoading ? (
                 <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
               ) : (
                 'Sign In'
@@ -119,14 +112,10 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-sm mt-5" style={{ color: 'var(--fg-muted)' }}>
-          Don&apos;t have an account?{' '}
+          New here?{' '}
           <Link href="/auth/register" className="font-bold hover:opacity-70" style={{ color: 'var(--accent)' }}>
-            Create one
+            Register with Mobile OTP
           </Link>
-        </p>
-
-        <p className="text-center text-[11px] mt-6 px-4" style={{ color: 'var(--fg-subtle)' }}>
-          Demo: <strong style={{ color: 'var(--fg-muted)' }}>demo@threadx.in</strong> / <strong style={{ color: 'var(--fg-muted)' }}>password123</strong>
         </p>
       </div>
     </div>

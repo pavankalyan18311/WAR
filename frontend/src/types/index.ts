@@ -87,11 +87,16 @@ export type UserRole = 'guest' | 'customer' | 'admin' | 'super_admin';
 export interface User {
   user_id: string;
   name: string;
+  first_name?: string;
+  last_name?: string;
   email: string;
   phone?: string;
+  dob?: string;
   role: UserRole;
   avatar?: string;
   is_verified: boolean;
+  mobile_verified?: boolean;
+  email_verified?: boolean;
   created_at?: string;
 }
 
