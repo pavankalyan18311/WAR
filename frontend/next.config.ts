@@ -8,8 +8,7 @@ const extraDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || '')
 
 const nextConfig: NextConfig = {
   // Allow ephemeral Cloudflare tunnel hosts in dev so no config edits are needed per run.
-  allowedDevOrigins: ['https://*.trycloudflare.com', ...extraDevOrigins],
-
+  allowedDevOrigins: ['*.trycloudflare.com', ...extraDevOrigins],
   images: {
     unoptimized: process.env.NODE_ENV === 'development',
     remotePatterns: [
