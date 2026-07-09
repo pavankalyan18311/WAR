@@ -75,7 +75,6 @@ services:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api
       BACKEND_ORIGIN: http://backend:8000
       ALLOWED_DEV_ORIGINS: https://*.trycloudflare.com
-      NODE_TLS_REJECT_UNAUTHORIZED: "0"
     ports:
       - "3000:3000"
     depends_on:

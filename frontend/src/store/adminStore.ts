@@ -35,6 +35,8 @@ const isSupabaseConfigured = () => {
   return url.startsWith('https://') && !url.startsWith('your-');
 };
 
+// Keep original behavior: detect whether Supabase is configured.
+
 export const useAdminStore = create<AdminStore>()(
   persist(
     (set) => ({

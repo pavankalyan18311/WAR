@@ -12,7 +12,13 @@ export async function updateSession(request: NextRequest) {
   // If Supabase env vars are not configured, skip auth and just set pathname header
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || supabaseUrl.startsWith('your-') || !supabaseAnonKey || supabaseAnonKey.startsWith('your-')) {
+
+  // Allow a developer override to disable Supabase auth checks in middleware.
+  // This is intentionally separate from the client-only `NEXT_PUBLIC_DISABLE_SUPABASE_AUTH` —
+  // if set at the server/container level, middleware will skip auth and allow admin routes.
+  const serverBypass = (process.env.DISABLE_SUPABASE_AUTH ?? process.env.NEXT_PUBLIC_DISABLE_SUPABASE_AUTH ?? '').toString() === 'true';
+
+  if (serverBypass || !supabaseUrl || supabaseUrl.startsWith('your-') || !supabaseAnonKey || supabaseAnonKey.startsWith('your-')) {
     supabaseResponse.headers.set('x-pathname', request.nextUrl.pathname);
     return supabaseResponse;
   }

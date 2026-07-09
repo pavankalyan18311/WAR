@@ -16,11 +16,22 @@ export default function AdminLoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const success = await login(email, password);
-    if (success) {
-      router.push('/admin/dashboard');
-    } else {
-      setError('Invalid admin credentials. Please try again.');
+    try {
+      const success = await login(email, password);
+      if (success) {
+        // Prefer SPA navigation; fallback to full redirect if it doesn't take effect
+        router.push('/admin/dashboard');
+        setTimeout(() => {
+          if (window.location.pathname !== '/admin/dashboard') {
+            window.location.href = '/admin/dashboard';
+          }
+        }, 300);
+      } else {
+        setError('Invalid admin credentials. Please try again.');
+      }
+    } catch (err) {
+      set({ isLoading: false });
+      setError('An unexpected error occurred.');
     }
   };
 
@@ -74,6 +85,8 @@ export default function AdminLoginPage() {
               {error}
             </div>
           )}
+
+          {/* Dev auth banner removed - bypass still active for dev if enabled */}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
@@ -153,6 +166,11 @@ export default function AdminLoginPage() {
                 'Sign In to Admin Panel'
               )}
             </button>
+            {handlerCalled && (
+              <div className="mt-3 text-sm" style={{ color: 'var(--fg-muted)' }}>
+                Handler invoked — processing login…
+              </div>
+            )}
           </form>
 
           {/* Demo credentials */}

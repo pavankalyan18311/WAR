@@ -1,7 +1,9 @@
 import type { NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
 
-export async function middleware(request: NextRequest) {
+// Next.js expects this file to export a function named `proxy` (or a default
+// function). Previously this was `middleware` — rename the export accordingly.
+export async function proxy(request: NextRequest) {
   return updateSession(request);
 }
 
