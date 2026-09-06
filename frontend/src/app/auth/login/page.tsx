@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/authStore';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, isAuthenticated } = useAuthStore();
+  const { login, loading, isAuthenticated, role, user } = useAuthStore();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -16,17 +16,28 @@ export default function LoginPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/');
+    if (isAuthenticated && user) {
+      const uEmail = (user.email || '').toLowerCase().trim();
+      if (['admin', 'super_admin', 'manager'].includes(role) || uEmail === 'maladoddipavankalyan@gmail.com') {
+        router.push('/admin/dashboard');
+      } else {
+        router.push('/account/profile');
+      }
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, role, user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
-      await login(email, password);
-      router.push('/');
+      const result = await login(email, password);
+      const uEmail = email.toLowerCase().trim();
+      console.log('Login successful:', result);
+      if (['admin', 'super_admin', 'manager'].includes(result.role) || uEmail === 'pavankalyan1831@gmail.com') {
+        router.push('/admin/dashboard');
+      } else {
+        router.push('/account/profile');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     }
@@ -42,10 +53,10 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center font-black text-sm mx-auto mb-3"
             style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-            TX
+            WAR
           </div>
-          <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>THREADX</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Sign in with email and password</p>
+          <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>WAR</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Without Any Regrets</p>
         </div>
 
         {/* Card */}
@@ -64,7 +75,7 @@ export default function LoginPage() {
               <div className={inputWrap}>
                 <Mail size={15} className="absolute left-3.5 pointer-events-none" style={{ color: 'var(--fg-subtle)' }} />
                 <input data-testid="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                  required placeholder="you@example.com"
+                  required placeholder="you@example.com" 
                   className={inputBase}
                   style={{ background: 'var(--bg-elevated)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--ring)')}
@@ -85,7 +96,7 @@ export default function LoginPage() {
                 <Lock size={15} className="absolute left-3.5 pointer-events-none" style={{ color: 'var(--fg-subtle)' }} />
                 <input data-testid="auth-password" type={showPw ? 'text' : 'password'} value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  required placeholder="••••••••"
+                  required placeholder="••••••••"  autoComplete="current-password" 
                   className={inputBase}
                   style={{ background: 'var(--bg-elevated)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}
                   onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--ring)')}
@@ -99,10 +110,10 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <button type="submit" disabled={isLoading}
+            <button type="submit" disabled={loading}
               className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 mt-2"
               style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              {isLoading ? (
+              {loading ? (
                 <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
               ) : (
                 'Sign In'
@@ -114,7 +125,7 @@ export default function LoginPage() {
         <p className="text-center text-sm mt-5" style={{ color: 'var(--fg-muted)' }}>
           New here?{' '}
           <Link href="/auth/register" className="font-bold hover:opacity-70" style={{ color: 'var(--accent)' }}>
-            Register with Mobile OTP
+            Register with Email OTP
           </Link>
         </p>
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import {
   Search,
   Filter,
@@ -27,17 +28,18 @@ interface Order {
   payment: string;
   date: string;
   city: string;
+  raw_id?: string;
 }
 
 const MOCK_ORDERS: Order[] = [
-  { id: '#TX-10482', customer: 'Arjun Sharma', email: 'arjun@example.com', product: 'Midnight Oversized Tee × 2', amount: 2998, items: 2, status: 'Delivered', payment: 'UPI', date: '2026-06-09', city: 'Bengaluru' },
-  { id: '#TX-10481', customer: 'Ravi Kumar', email: 'ravi@example.com', product: 'Essential White Classic', amount: 799, items: 1, status: 'Shipped', payment: 'Card', date: '2026-06-09', city: 'Mumbai' },
-  { id: '#TX-10480', customer: 'Deepak Nair', email: 'deepak@example.com', product: 'Acid Wash Vintage', amount: 1299, items: 1, status: 'Processing', payment: 'NetBanking', date: '2026-06-08', city: 'Pune' },
-  { id: '#TX-10479', customer: 'Karthik M', email: 'karthik@example.com', product: 'Graphic City Tee × 3', amount: 2997, items: 3, status: 'Pending', payment: 'COD', date: '2026-06-08', city: 'Chennai' },
-  { id: '#TX-10478', customer: 'Suresh Babu', email: 'suresh@example.com', product: 'Premium Pima Cotton', amount: 2199, items: 1, status: 'Delivered', payment: 'UPI', date: '2026-06-07', city: 'Hyderabad' },
-  { id: '#TX-10477', customer: 'Amit Singh', email: 'amit@example.com', product: 'Urban Minimalist', amount: 1099, items: 1, status: 'Cancelled', payment: 'Card', date: '2026-06-07', city: 'Delhi' },
-  { id: '#TX-10476', customer: 'Pradeep R', email: 'pradeep@example.com', product: 'Thermal Base Layer', amount: 1799, items: 1, status: 'Shipped', payment: 'UPI', date: '2026-06-06', city: 'Kolkata' },
-  { id: '#TX-10475', customer: 'Vijay Kumar', email: 'vijay@example.com', product: 'Summer Stripes × 2', amount: 1798, items: 2, status: 'Returned', payment: 'Card', date: '2026-06-05', city: 'Ahmedabad' },
+  { id: '#WAR-10482', customer: 'Arjun Sharma', email: 'arjun@example.com', product: 'Midnight Oversized Tee × 2', amount: 2998, items: 2, status: 'Delivered', payment: 'UPI', date: '2026-06-09', city: 'Bengaluru' },
+  { id: '#WAR-10481', customer: 'Ravi Kumar', email: 'ravi@example.com', product: 'Essential White Classic', amount: 799, items: 1, status: 'Shipped', payment: 'Card', date: '2026-06-09', city: 'Mumbai' },
+  { id: '#WAR-10480', customer: 'Deepak Nair', email: 'deepak@example.com', product: 'Acid Wash Vintage', amount: 1299, items: 1, status: 'Processing', payment: 'NetBanking', date: '2026-06-08', city: 'Pune' },
+  { id: '#WAR-10479', customer: 'Karthik M', email: 'karthik@example.com', product: 'Graphic City Tee × 3', amount: 2997, items: 3, status: 'Pending', payment: 'COD', date: '2026-06-08', city: 'Chennai' },
+  { id: '#WAR-10478', customer: 'Suresh Babu', email: 'suresh@example.com', product: 'Premium Pima Cotton', amount: 2199, items: 1, status: 'Delivered', payment: 'UPI', date: '2026-06-07', city: 'Hyderabad' },
+  { id: '#WAR-10477', customer: 'Amit Singh', email: 'amit@example.com', product: 'Urban Minimalist', amount: 1099, items: 1, status: 'Cancelled', payment: 'Card', date: '2026-06-07', city: 'Delhi' },
+  { id: '#WAR-10476', customer: 'Pradeep R', email: 'pradeep@example.com', product: 'Thermal Base Layer', amount: 1799, items: 1, status: 'Shipped', payment: 'UPI', date: '2026-06-06', city: 'Kolkata' },
+  { id: '#WAR-10475', customer: 'Vijay Kumar', email: 'vijay@example.com', product: 'Summer Stripes × 2', amount: 1798, items: 2, status: 'Returned', payment: 'Card', date: '2026-06-05', city: 'Ahmedabad' },
 ];
 
 const STATUS_CONFIG: Record<OrderStatus, { bg: string; color: string; icon: React.ReactNode }> = {
@@ -52,11 +54,83 @@ const STATUS_CONFIG: Record<OrderStatus, { bg: string; color: string; icon: Reac
 const ALL_STATUSES: OrderStatus[] = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Returned'];
 
 export default function AdminOrdersPage() {
+  const supabase = useMemo(() => createClient(), []);
   const [orders, setOrders] = useState<Order[]>(MOCK_ORDERS);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSupabaseOrders = async () => {
+      try {
+        const { data, error } = await (supabase as any)
+          .from('orders')
+          .select('*, order_items(*, product:products(name))')
+          .order('created_at', { ascending: false });
+
+        if (data && data.length > 0) {
+          const mapped: Order[] = data.map((o: any) => {
+            const addr = o.delivery_address || {};
+            const custName = addr.full_name || 'Customer';
+            const custCity = addr.city || 'Bengaluru';
+            const itemCount = o.order_items?.reduce((sum: number, it: any) => sum + (it.quantity || 1), 0) ?? 1;
+            const firstProdName = o.order_items?.[0]?.product?.name || 'WAR Essential Item';
+            const prodText = o.order_items?.length > 1 ? `${firstProdName} + ${o.order_items.length - 1} more` : firstProdName;
+
+            const st = (o.status || 'processing').toLowerCase();
+            let finalStatus: OrderStatus = 'Processing';
+            if (st === 'confirmed' || st === 'processing') finalStatus = 'Processing';
+            else if (st === 'shipped') finalStatus = 'Shipped';
+            else if (st === 'delivered') finalStatus = 'Delivered';
+            else if (st === 'cancelled') finalStatus = 'Cancelled';
+            else if (st === 'pending') finalStatus = 'Pending';
+
+            return {
+              id: `#${o.order_number || o.order_id.slice(0, 8)}`,
+              customer: custName,
+              email: addr.email || 'customer@war.in',
+              product: prodText,
+              amount: Number(o.total || 0),
+              items: itemCount,
+              status: finalStatus,
+              payment: (o.payment_method || 'UPI').toUpperCase(),
+              date: new Date(o.created_at || Date.now()).toISOString().split('T')[0],
+              city: custCity,
+              raw_id: o.order_id,
+            };
+          });
+          setOrders(mapped);
+        }
+      } catch (err) {
+        console.error('Failed to fetch orders from Supabase', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSupabaseOrders();
+  }, [supabase]);
+
+  const updateStatus = async (id: string, status: OrderStatus) => {
+    setUpdatingId(id);
+    const target = orders.find((o) => o.id === id);
+    try {
+      if (target?.raw_id) {
+        const dbStatus = status.toLowerCase();
+        await (supabase as any)
+          .from('orders')
+          .update({ status: dbStatus })
+          .eq('order_id', target.raw_id);
+      }
+      setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status } : o));
+      if (selectedOrder?.id === id) setSelectedOrder((prev) => prev ? { ...prev, status } : null);
+    } catch (err) {
+      console.error('Failed to update status in Supabase', err);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   const filtered = orders.filter((o) => {
     const matchSearch =
@@ -66,14 +140,6 @@ export default function AdminOrdersPage() {
     const matchStatus = filterStatus === 'All' || o.status === filterStatus;
     return matchSearch && matchStatus;
   });
-
-  const updateStatus = async (id: string, status: OrderStatus) => {
-    setUpdatingId(id);
-    await new Promise((r) => setTimeout(r, 500));
-    setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status } : o));
-    if (selectedOrder?.id === id) setSelectedOrder((prev) => prev ? { ...prev, status } : null);
-    setUpdatingId(null);
-  };
 
   const totalRevenue = orders
     .filter((o) => o.status !== 'Cancelled' && o.status !== 'Returned')
@@ -165,11 +231,11 @@ export default function AdminOrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((order) => {
-              const sc = STATUS_CONFIG[order.status];
+            {filtered.map((order, idx) => {
+              const sc = STATUS_CONFIG[order.status] || STATUS_CONFIG.Processing;
               return (
                 <tr
-                  key={order.id}
+                  key={order.id ? `${order.id}-${idx}` : `order-${idx}`}
                   style={{ borderBottom: '1px solid var(--border)' }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--bg-subtle)'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}

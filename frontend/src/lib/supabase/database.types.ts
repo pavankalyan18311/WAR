@@ -1,14 +1,45 @@
-/**
- * TypeScript types auto-generated from the ThreadX Supabase schema.
- * Run `npx supabase gen types typescript --project-id YOUR_PROJECT_ID > src/lib/supabase/database.types.ts`
- * to regenerate after schema changes.
- */
-
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
 export interface Database {
   public: {
     Tables: {
+      email_otps: {
+        Row: {
+          id: string;
+          email: string;
+          password: string;
+          first_name: string | null;
+          last_name: string | null;
+          dob: string | null;
+          otp: string | null;
+          expires_at: string | null;
+          verified: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          email: string;
+          password: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          dob?: string | null;
+          otp?: string | null;
+          expires_at?: string | null;
+          verified?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          email?: string;
+          password?: string;
+          first_name?: string | null;
+          last_name?: string | null;
+          dob?: string | null;
+          otp?: string | null;
+          expires_at?: string | null;
+          verified?: boolean;
+        };
+      };
+
       profiles: {
         Row: {
           id: string;
@@ -43,35 +74,6 @@ export interface Database {
         };
       };
 
-      categories: {
-        Row: {
-          id: number;
-          name: string;
-          slug: string;
-          description: string | null;
-          image_url: string | null;
-          display_order: number;
-          is_active: boolean;
-          created_at: string;
-        };
-        Insert: {
-          name: string;
-          slug: string;
-          description?: string | null;
-          image_url?: string | null;
-          display_order?: number;
-          is_active?: boolean;
-        };
-        Update: {
-          name?: string;
-          slug?: string;
-          description?: string | null;
-          image_url?: string | null;
-          display_order?: number;
-          is_active?: boolean;
-        };
-      };
-
       collections: {
         Row: {
           id: string;
@@ -85,130 +87,23 @@ export interface Database {
           updated_at: string;
         };
         Insert: {
+          id?: string;
           name: string;
           slug: string;
           description?: string | null;
           image_url?: string | null;
           display_order?: number;
           is_active?: boolean;
-        };
-        Update: {
-          name?: string;
-          slug?: string;
-          description?: string | null;
-          image_url?: string | null;
-          display_order?: number;
-          is_active?: boolean;
-        };
-      };
-
-      products: {
-        Row: {
-          id: string;
-          sku: string;
-          name: string;
-          slug: string;
-          description: string | null;
-          price: number;
-          discount_price: number | null;
-          category_id: number | null;
-          collection_id: string | null;
-          status: 'active' | 'draft' | 'archived';
-          fabric: string | null;
-          fit_type: 'oversized' | 'regular' | 'slim' | 'relaxed' | null;
-          tags: string[] | null;
-          is_featured: boolean;
-          rating: number | null;
-          review_count: number;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          sku: string;
-          name: string;
-          slug: string;
-          description?: string | null;
-          price: number;
-          discount_price?: number | null;
-          category_id?: number | null;
-          collection_id?: string | null;
-          status?: 'active' | 'draft' | 'archived';
-          fabric?: string | null;
-          fit_type?: 'oversized' | 'regular' | 'slim' | 'relaxed' | null;
-          tags?: string[] | null;
-          is_featured?: boolean;
-        };
-        Update: {
-          sku?: string;
-          name?: string;
-          slug?: string;
-          description?: string | null;
-          price?: number;
-          discount_price?: number | null;
-          category_id?: number | null;
-          collection_id?: string | null;
-          status?: 'active' | 'draft' | 'archived';
-          fabric?: string | null;
-          fit_type?: 'oversized' | 'regular' | 'slim' | 'relaxed' | null;
-          tags?: string[] | null;
-          is_featured?: boolean;
+          created_at?: string;
           updated_at?: string;
         };
-      };
-
-      product_images: {
-        Row: {
-          id: string;
-          product_id: string;
-          url: string;
-          alt: string | null;
-          type: 'image' | 'video';
-          display_order: number;
-          created_at: string;
-        };
-        Insert: {
-          product_id: string;
-          url: string;
-          alt?: string | null;
-          type?: 'image' | 'video';
-          display_order?: number;
-        };
         Update: {
-          url?: string;
-          alt?: string | null;
-          type?: 'image' | 'video';
+          name?: string;
+          slug?: string;
+          description?: string | null;
+          image_url?: string | null;
           display_order?: number;
-        };
-      };
-
-      product_variants: {
-        Row: {
-          id: string;
-          product_id: string;
-          sku: string;
-          color: string;
-          color_hex: string | null;
-          size: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL';
-          stock_quantity: number;
-          price_override: number | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          product_id: string;
-          sku: string;
-          color: string;
-          color_hex?: string | null;
-          size: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL';
-          stock_quantity?: number;
-          price_override?: number | null;
-        };
-        Update: {
-          color?: string;
-          color_hex?: string | null;
-          size?: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL';
-          stock_quantity?: number;
-          price_override?: number | null;
+          is_active?: boolean;
           updated_at?: string;
         };
       };
@@ -229,6 +124,7 @@ export interface Database {
           created_at: string;
         };
         Insert: {
+          id?: string;
           user_id: string;
           full_name: string;
           phone: string;
@@ -239,6 +135,7 @@ export interface Database {
           pincode: string;
           country?: string;
           is_default?: boolean;
+          created_at?: string;
         };
         Update: {
           full_name?: string;
@@ -248,6 +145,7 @@ export interface Database {
           city?: string;
           state?: string;
           pincode?: string;
+          country?: string;
           is_default?: boolean;
         };
       };
@@ -263,7 +161,7 @@ export interface Database {
           tax: number;
           total: number;
           coupon_code: string | null;
-          payment_method: 'upi' | 'card' | 'net_banking' | 'cod' | 'wallet';
+          payment_method: string;
           payment_status: 'pending' | 'paid' | 'failed' | 'refunded';
           shipping_address: Json;
           tracking_number: string | null;
@@ -272,6 +170,7 @@ export interface Database {
           updated_at: string;
         };
         Insert: {
+          id?: string;
           user_id: string;
           status?: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
           subtotal: number;
@@ -280,11 +179,13 @@ export interface Database {
           tax?: number;
           total: number;
           coupon_code?: string | null;
-          payment_method: 'upi' | 'card' | 'net_banking' | 'cod' | 'wallet';
+          payment_method: string;
           payment_status?: 'pending' | 'paid' | 'failed' | 'refunded';
           shipping_address: Json;
           tracking_number?: string | null;
           notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
           status?: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
@@ -307,61 +208,16 @@ export interface Database {
           created_at: string;
         };
         Insert: {
+          id?: string;
           order_id: string;
           product_id: string;
           variant_id: string;
           quantity: number;
           unit_price: number;
           total_price: number;
+          created_at?: string;
         };
         Update: never;
-      };
-
-      coupons: {
-        Row: {
-          id: string;
-          code: string;
-          type: 'percentage' | 'flat';
-          value: number;
-          min_order: number;
-          max_discount: number | null;
-          max_uses: number | null;
-          uses_count: number;
-          first_time_only: boolean;
-          is_active: boolean;
-          valid_from: string;
-          valid_to: string;
-          description: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          code: string;
-          type: 'percentage' | 'flat';
-          value: number;
-          min_order?: number;
-          max_discount?: number | null;
-          max_uses?: number | null;
-          first_time_only?: boolean;
-          is_active?: boolean;
-          valid_from: string;
-          valid_to: string;
-          description?: string | null;
-        };
-        Update: {
-          code?: string;
-          type?: 'percentage' | 'flat';
-          value?: number;
-          min_order?: number;
-          max_discount?: number | null;
-          max_uses?: number | null;
-          first_time_only?: boolean;
-          is_active?: boolean;
-          valid_from?: string;
-          valid_to?: string;
-          description?: string | null;
-          updated_at?: string;
-        };
       };
 
       wishlist: {
@@ -372,87 +228,293 @@ export interface Database {
           created_at: string;
         };
         Insert: {
+          id?: string;
           user_id: string;
           product_id: string;
+          created_at?: string;
         };
         Update: never;
       };
 
-      reviews: {
+      categories: {
         Row: {
           id: string;
-          product_id: string;
-          user_id: string;
-          rating: number;
-          title: string | null;
-          body: string | null;
-          status: 'pending' | 'approved' | 'rejected';
-          is_verified_purchase: boolean;
+          name: string;
+          slug: string;
+          description: string | null;
+          parent_id: string | null;
           created_at: string;
           updated_at: string;
         };
         Insert: {
-          product_id: string;
-          user_id: string;
-          rating: number;
-          title?: string | null;
-          body?: string | null;
-          status?: 'pending' | 'approved' | 'rejected';
-          is_verified_purchase?: boolean;
+          id?: string;
+          name: string;
+          slug: string;
+          description?: string | null;
+          parent_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          rating?: number;
-          title?: string | null;
-          body?: string | null;
-          status?: 'pending' | 'approved' | 'rejected';
+          name?: string;
+          slug?: string;
+          description?: string | null;
+          parent_id?: string | null;
           updated_at?: string;
         };
       };
 
-      loyalty_points: {
+      products: {
         Row: {
           id: string;
-          user_id: string;
-          points: number;
-          tier: 'bronze' | 'silver' | 'gold' | 'platinum';
+          name: string;
+          slug: string;
+          description: string | null;
+          fabric: string | null;
+          fit: string | null;
+          pattern: string | null;
+          sleeve_type: string | null;
+          neck_type: string | null;
+          gender: string | null;
+          status: 'draft' | 'active' | 'archived';
+          created_at: string;
           updated_at: string;
         };
         Insert: {
-          user_id: string;
-          points?: number;
-          tier?: 'bronze' | 'silver' | 'gold' | 'platinum';
+          id?: string;
+          name: string;
+          slug: string;
+          description?: string | null;
+          fabric?: string | null;
+          fit?: string | null;
+          pattern?: string | null;
+          sleeve_type?: string | null;
+          neck_type?: string | null;
+          gender?: string | null;
+          status?: 'draft' | 'active' | 'archived';
+          created_at?: string;
+          updated_at?: string;
         };
         Update: {
-          points?: number;
-          tier?: 'bronze' | 'silver' | 'gold' | 'platinum';
+          name?: string;
+          slug?: string;
+          description?: string | null;
+          fabric?: string | null;
+          fit?: string | null;
+          pattern?: string | null;
+          sleeve_type?: string | null;
+          neck_type?: string | null;
+          gender?: string | null;
+          status?: 'draft' | 'active' | 'archived';
           updated_at?: string;
         };
       };
-    };
 
-    Views: {
-      [_ in never]: never;
-    };
-
-    Functions: {
-      validate_coupon: {
-        Args: { p_code: string; p_user_id: string; p_order_total: number };
-        Returns: {
-          valid: boolean;
-          discount_amount: number;
-          message: string;
+      product_categories: {
+        Row: {
+          product_id: string;
+          category_id: string;
+        };
+        Insert: {
+          product_id: string;
+          category_id: string;
+        };
+        Update: {
+          product_id?: string;
+          category_id?: string;
         };
       };
-    };
 
-    Enums: {
-      user_role: 'customer' | 'admin' | 'super_admin';
-      product_status: 'active' | 'draft' | 'archived';
-      order_status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
-      payment_method: 'upi' | 'card' | 'net_banking' | 'cod' | 'wallet';
-      size_enum: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL';
-      coupon_type: 'percentage' | 'flat';
-      review_status: 'pending' | 'approved' | 'rejected';
+      size_options: {
+        Row: {
+          id: string;
+          name: string;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
+          sort_order?: number;
+        };
+      };
+
+      category_size_options: {
+        Row: {
+          category_id: string;
+          size_option_id: string;
+          sort_order: number;
+        };
+        Insert: {
+          category_id: string;
+          size_option_id: string;
+          sort_order?: number;
+        };
+        Update: {
+          sort_order?: number;
+        };
+      };
+
+      colors: {
+        Row: {
+          id: string;
+          name: string;
+          color_code: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          color_code?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
+          color_code?: string | null;
+        };
+      };
+
+      product_variants: {
+        Row: {
+          id: string;
+          product_id: string;
+          color_id: string | null;
+          size_option_id: string | null;
+          sku: string;
+          price: number;
+          compare_at_price: number | null;
+          status: 'active' | 'inactive';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          color_id?: string | null;
+          size_option_id?: string | null;
+          sku: string;
+          price: number;
+          compare_at_price?: number | null;
+          status?: 'active' | 'inactive';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          color_id?: string | null;
+          size_option_id?: string | null;
+          sku?: string;
+          price?: number;
+          compare_at_price?: number | null;
+          status?: 'active' | 'inactive';
+          updated_at?: string;
+        };
+      };
+
+      product_media: {
+        Row: {
+          id: string;
+          product_id: string;
+          variant_id: string | null;
+          storage_path: string;
+          media_type: 'image' | 'video';
+          mime_type: string | null;
+          alt_text: string | null;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          product_id: string;
+          variant_id?: string | null;
+          storage_path: string;
+          media_type?: 'image' | 'video';
+          mime_type?: string | null;
+          alt_text?: string | null;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          variant_id?: string | null;
+          storage_path?: string;
+          media_type?: 'image' | 'video';
+          mime_type?: string | null;
+          alt_text?: string | null;
+          sort_order?: number;
+        };
+      };
+
+      inventory: {
+        Row: {
+          id: string;
+          variant_id: string;
+          quantity: number;
+          reserved_quantity: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          variant_id: string;
+          quantity?: number;
+          reserved_quantity?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          quantity?: number;
+          reserved_quantity?: number;
+          updated_at?: string;
+        };
+      };
+
+      carts: {
+        Row: {
+          id: string;
+          user_id: string;
+          status: 'active' | 'converted' | 'abandoned';
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          status?: 'active' | 'converted' | 'abandoned';
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          status?: 'active' | 'converted' | 'abandoned';
+          updated_at?: string;
+        };
+      };
+
+      cart_items: {
+        Row: {
+          id: string;
+          cart_id: string;
+          variant_id: string;
+          quantity: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          cart_id: string;
+          variant_id: string;
+          quantity: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          quantity?: number;
+          updated_at?: string;
+        };
+      };
     };
   };
 }

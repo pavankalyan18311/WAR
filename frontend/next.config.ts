@@ -7,6 +7,10 @@ const extraDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || '')
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  // Silence workspace root lockfile warning in Next.js 16
+  turbopack: {
+    root: __dirname,
+  },
   // Allow ephemeral Cloudflare tunnel hosts in dev so no config edits are needed per run.
   allowedDevOrigins: ['*.trycloudflare.com', ...extraDevOrigins],
   images: {

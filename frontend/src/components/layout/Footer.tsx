@@ -46,9 +46,16 @@ const SOCIAL = [
   { label: 'WhatsApp', href: 'https://wa.me/919876543210', icon: TwitterXIcon },
 ];
 
+import { usePathname } from 'next/navigation';
+
 export default function Footer() {
+  const pathname = usePathname();
+
+  if (pathname.startsWith('/admin')) {
+    return null;
+  }
   return (
-    <footer style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border)' }}>
+    <footer className="mt-auto w-full" style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border)' }}>
       <div className="max-w-7xl mx-auto px-5 sm:px-8 py-14">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-10">
           {/* Brand */}

@@ -3,15 +3,37 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { X, ShoppingBag, Plus, Minus, Trash2, ArrowRight, ShieldCheck, MessageCircle } from 'lucide-react';
+import { X, ShoppingBag, Plus, Minus, Trash2, ArrowRight, Tag } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { formatPrice } from '@/lib/utils';
 
 export default function CartDrawer() {
-  const { items, isOpen, closeCart, removeItem, updateQuantity, getSummary } = useCartStore();
+  const { items, isOpen, closeCart, removeItem, updateQuantity, getSummary, couponCode, applyCoupon, removeCoupon } = useCartStore();
   const [mounted, setMounted] = useState(false);
+  const [inputCoupon, setInputCoupon] = useState('');
+  const [couponError, setCouponError] = useState('');
   const drawerRef = useRef<HTMLDivElement>(null);
   const summary = getSummary();
+
+  const handleApplyCoupon = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCouponError('');
+    const code = inputCoupon.trim().toUpperCase();
+    if (!code) return;
+
+    if (code === 'WAR10') {
+      applyCoupon('WAR10', 0);
+      setInputCoupon('');
+    } else if (code === 'WELCOME20') {
+      applyCoupon('WELCOME20', 0);
+      setInputCoupon('');
+    } else if (code === 'FREESHIP') {
+      applyCoupon('FREESHIP', 0);
+      setInputCoupon('');
+    } else {
+      setCouponError('Invalid coupon code. Try WAR10 or WELCOME20.');
+    }
+  };
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -30,27 +52,6 @@ export default function CartDrawer() {
   const FREE_SHIPPING_THRESHOLD = 999;
   const progress = mounted ? Math.min((summary.subtotal / FREE_SHIPPING_THRESHOLD) * 100, 100) : 0;
   const remaining = mounted ? Math.max(FREE_SHIPPING_THRESHOLD - summary.subtotal, 0) : FREE_SHIPPING_THRESHOLD;
-
-  const whatsappNumber = '919876543210';
-
-  const buildWhatsAppMessage = () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://example.com';
-    const lines: string[] = [];
-    lines.push("Hello, I'd like to place an order:");
-    lines.push('');
-    items.forEach((it) => {
-      lines.push(`${it.quantity} x ${it.product.name} (${it.variant.size}/${it.variant.color}) - ${formatPrice(it.price * it.quantity)}`);
-      lines.push(`${origin}/products/${it.product.slug}`);
-      lines.push('');
-    });
-    lines.push(`Subtotal: ${formatPrice(summary.subtotal)}`);
-    lines.push(`Shipping: ${summary.shipping === 0 ? 'FREE' : formatPrice(summary.shipping)}`);
-    lines.push(`Total: ${formatPrice(summary.total)}`);
-    lines.push('');
-    lines.push('Delivery Address:');
-    lines.push('Preferred Payment Method (UPI/Cash on Delivery/Other):');
-    return lines.join('\n');
-  };
 
   if (!isOpen) return null;
 
@@ -132,67 +133,73 @@ export default function CartDrawer() {
             </div>
           ) : (
             <div className="space-y-3">
-              {items.map((item) => (
-                <div key={item.cart_item_id} data-testid="cart-item" className="flex gap-3 p-3 rounded-xl"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                  <Link href={`/products/${item.product.slug}`} onClick={closeCart}
-                    className="relative w-16 h-20 rounded-xl overflow-hidden flex-shrink-0"
-                    style={{ background: 'var(--bg-card)' }}>
-                    <Image src={item.product.images[0]?.url ?? ''} alt={item.product.name} fill className="object-cover" sizes="64px" />
-                  </Link>
+              {items.map((item) => {
+                const itemId = item.cart_item_id || item.id || `${item.variant_id}`;
+                const itemImg = item.product?.images?.[0]?.url || 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600';
+                const itemPrice = Number(item.price || item.variant?.price || item.product?.price || 0);
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between gap-1">
-                      <Link href={`/products/${item.product.slug}`} onClick={closeCart}
-                        className="text-xs font-semibold leading-snug line-clamp-2 hover:underline"
-                        style={{ color: 'var(--fg)' }}>
-                        {item.product.name}
-                      </Link>
-                      <button onClick={() => removeItem(item.cart_item_id)}
-                        className="p-0.5 rounded flex-shrink-0 transition-colors"
-                        style={{ color: 'var(--fg-subtle)' }}
-                        onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
-                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--fg-subtle)')}
-                        aria-label="Remove">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
+                return (
+                  <div key={itemId} data-testid="cart-item" className="flex gap-3 p-3 rounded-xl"
+                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                    <Link href={`/products/${item.product?.slug || ''}`} onClick={closeCart}
+                      className="relative w-16 h-20 rounded-xl overflow-hidden flex-shrink-0"
+                      style={{ background: 'var(--bg-card)' }}>
+                      <Image src={itemImg} alt={item.product?.name || 'Product'} fill className="object-cover" sizes="64px" />
+                    </Link>
 
-                    <div className="flex gap-1.5 mt-1">
-                      <span className="text-[10px] px-1.5 py-0.5 rounded"
-                        style={{ background: 'var(--bg-card)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}>
-                        {item.variant.size}
-                      </span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded"
-                        style={{ background: 'var(--bg-card)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}>
-                        {item.variant.color}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex items-center rounded-full overflow-hidden"
-                        style={{ border: '1.5px solid var(--border)' }}>
-                        <button onClick={() => updateQuantity(item.cart_item_id, item.quantity - 1)}
-                          className="w-6 h-6 flex items-center justify-center text-xs"
-                          style={{ color: 'var(--fg-muted)' }}>
-                          <Minus size={10} />
-                        </button>
-                        <span className="w-6 text-center text-xs font-bold" style={{ color: 'var(--fg)' }}>
-                          {item.quantity}
-                        </span>
-                        <button onClick={() => updateQuantity(item.cart_item_id, item.quantity + 1)}
-                          className="w-6 h-6 flex items-center justify-center"
-                          style={{ color: 'var(--fg-muted)' }}>
-                          <Plus size={10} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between gap-1">
+                        <Link href={`/products/${item.product?.slug || ''}`} onClick={closeCart}
+                          className="text-xs font-semibold leading-snug line-clamp-2 hover:underline"
+                          style={{ color: 'var(--fg)' }}>
+                          {item.product?.name || 'Product'}
+                        </Link>
+                        <button onClick={() => removeItem(itemId)}
+                          className="p-0.5 rounded flex-shrink-0 transition-colors"
+                          style={{ color: 'var(--fg-subtle)' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--fg-subtle)')}
+                          aria-label="Remove">
+                          <Trash2 size={13} />
                         </button>
                       </div>
-                      <span className="text-xs font-black" style={{ color: 'var(--fg)' }}>
-                        {formatPrice(item.price * item.quantity)}
-                      </span>
+
+                      <div className="flex gap-1.5 mt-1">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: 'var(--bg-card)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}>
+                          {item.variant?.size || 'Free Size'}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: 'var(--bg-card)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}>
+                          {item.variant?.color || 'Default'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center rounded-full overflow-hidden"
+                          style={{ border: '1.5px solid var(--border)' }}>
+                          <button onClick={() => updateQuantity(itemId, item.quantity - 1)}
+                            className="w-6 h-6 flex items-center justify-center text-xs"
+                            style={{ color: 'var(--fg-muted)' }}>
+                            <Minus size={10} />
+                          </button>
+                          <span className="w-6 text-center text-xs font-bold" style={{ color: 'var(--fg)' }}>
+                            {item.quantity}
+                          </span>
+                          <button onClick={() => updateQuantity(itemId, item.quantity + 1)}
+                            className="w-6 h-6 flex items-center justify-center"
+                            style={{ color: 'var(--fg-muted)' }}>
+                            <Plus size={10} />
+                          </button>
+                        </div>
+                        <span className="text-xs font-black" style={{ color: 'var(--fg)' }}>
+                          {formatPrice(itemPrice * item.quantity)}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -201,54 +208,68 @@ export default function CartDrawer() {
         {mounted && items.length > 0 && (
           <div className="px-5 pb-6 pt-4 space-y-3"
             style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-            <div className="flex justify-between items-center">
-              <div className="space-y-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
-                <div className="flex justify-between gap-8">
-                  <span>Subtotal</span>
-                  <span style={{ color: 'var(--fg)', fontWeight: 600 }}>{formatPrice(summary.subtotal)}</span>
-                </div>
-                {summary.discount > 0 && (
-                  <div className="flex justify-between gap-8" style={{ color: 'var(--success)' }}>
-                    <span>Discount</span>
-                    <span>-{formatPrice(summary.discount)}</span>
+            
+            {/* Promo Code Input Box */}
+            <div className="rounded-xl p-2.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+              {couponCode ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Tag size={13} style={{ color: 'var(--accent)' }} />
+                    <span className="text-xs font-bold" style={{ color: 'var(--fg)' }}>{couponCode} Applied</span>
                   </div>
-                )}
-                <div className="flex justify-between gap-8">
-                  <span>Shipping</span>
-                  <span style={{ color: summary.shipping === 0 ? 'var(--success)' : 'var(--fg)', fontWeight: 600 }}>
-                    {summary.shipping === 0 ? 'FREE' : formatPrice(summary.shipping)}
-                  </span>
+                  <button onClick={removeCoupon} className="text-[11px] font-semibold text-red-500 hover:underline">
+                    Remove
+                  </button>
                 </div>
+              ) : (
+                <form onSubmit={handleApplyCoupon} className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Tag size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--fg-subtle)' }} />
+                    <input
+                      type="text"
+                      value={inputCoupon}
+                      onChange={(e) => setInputCoupon(e.target.value)}
+                      placeholder="Coupon Code (WAR10)"
+                      className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg outline-none"
+                      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}
+                    />
+                  </div>
+                  <button type="submit" className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+                    Apply
+                  </button>
+                </form>
+              )}
+              {couponError && <p className="text-[11px] text-red-500 mt-1">{couponError}</p>}
+            </div>
+
+            {/* Price Summary */}
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
+                <span>Subtotal</span>
+                <span className="font-semibold" style={{ color: 'var(--fg)' }}>{formatPrice(summary.subtotal)}</span>
+              </div>
+              {summary.discount > 0 && (
+                <div className="flex justify-between font-semibold" style={{ color: 'var(--success)' }}>
+                  <span>Discount</span>
+                  <span>-{formatPrice(summary.discount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
+                <span>Shipping</span>
+                <span>{summary.shipping === 0 ? <strong style={{ color: 'var(--success)' }}>FREE</strong> : formatPrice(summary.shipping)}</span>
+              </div>
+              <div className="flex justify-between pt-2 font-bold text-sm" style={{ borderTop: '1px solid var(--border)', color: 'var(--fg)' }}>
+                <span>Total</span>
+                <span className="text-base font-black">{formatPrice(summary.total)}</span>
               </div>
             </div>
 
-            <div className="flex justify-between items-baseline pt-2"
-              style={{ borderTop: '1px solid var(--border)' }}>
-              <span className="text-sm font-bold" style={{ color: 'var(--fg)' }}>Total</span>
-              <span className="text-xl font-black" style={{ color: 'var(--fg)' }}>{formatPrice(summary.total)}</span>
-            </div>
-
-            <a href={
-              `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(buildWhatsAppMessage())}`
-            }
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => closeCart()}
-              data-testid="whatsapp-checkout"
-              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-full font-bold text-sm uppercase tracking-wider hover:opacity-90 transition-opacity"
-              style={{ background: '#25D366', color: '#fff', boxShadow: 'var(--shadow-md)' }}>
-              <MessageCircle size={15} /> Order via WhatsApp
-            </a>
-
             <Link href="/checkout" onClick={closeCart}
-              className="flex items-center justify-center gap-2 w-full py-3.5 rounded-full font-bold text-sm uppercase tracking-wider hover:opacity-90 transition-opacity"
+              className="w-full py-3.5 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
               style={{ background: 'var(--primary)', color: 'var(--primary-fg)', boxShadow: 'var(--shadow-md)' }}>
-              Checkout <ArrowRight size={15} />
+              Proceed to Checkout <ArrowRight size={15} />
             </Link>
-
-            <div className="flex items-center justify-center gap-1.5 text-[10px]" style={{ color: 'var(--fg-subtle)' }}>
-              <ShieldCheck size={11} /> Secure &amp; encrypted checkout
-            </div>
           </div>
         )}
       </div>

@@ -23,11 +23,11 @@ interface Coupon {
 }
 
 const INITIAL_COUPONS: Coupon[] = [
+  { id: 'cp-war10', code: 'WAR10', type: 'percentage', value: 10, min_order: 499, uses: 512, status: 'Active', valid_from: '2026-01-01', valid_to: '2026-12-31', description: '10% off site-wide on orders above ₹499', first_time_only: false },
+  { id: 'cp-wel20', code: 'WELCOME20', type: 'percentage', value: 20, min_order: 999, max_discount: 400, uses: 320, max_uses: 1000, status: 'Active', valid_from: '2026-01-01', valid_to: '2026-12-31', description: '20% off for new customers on orders above ₹999', first_time_only: true },
   { id: 'cp1', code: 'WELCOME10', type: 'percentage', value: 10, min_order: 500, uses: 1240, max_uses: undefined, status: 'Active', valid_from: '2026-01-01', valid_to: '2026-12-31', description: 'Welcome discount for new users', first_time_only: true },
   { id: 'cp2', code: 'SUMMER20', type: 'percentage', value: 20, min_order: 999, max_discount: 300, uses: 432, max_uses: 1000, status: 'Active', valid_from: '2026-06-01', valid_to: '2026-08-31', description: 'Summer sale offer', first_time_only: false },
   { id: 'cp3', code: 'FLAT150', type: 'flat', value: 150, min_order: 1299, uses: 89, status: 'Active', valid_from: '2026-05-01', valid_to: '2026-06-30', description: 'Flat ₹150 off on orders above ₹1299', first_time_only: false },
-  { id: 'cp4', code: 'MONSOON30', type: 'percentage', value: 30, min_order: 1499, max_discount: 500, uses: 0, max_uses: 500, status: 'Scheduled', valid_from: '2026-07-01', valid_to: '2026-09-30', description: 'Monsoon mega sale', first_time_only: false },
-  { id: 'cp5', code: 'DIWALI25', type: 'percentage', value: 25, min_order: 799, uses: 2180, status: 'Expired', valid_from: '2025-10-15', valid_to: '2025-11-15', description: 'Diwali special offer', first_time_only: false },
 ];
 
 const STATUS_STYLES: Record<CouponStatus, { bg: string; color: string }> = {

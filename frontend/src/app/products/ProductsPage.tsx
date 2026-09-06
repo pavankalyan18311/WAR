@@ -2,18 +2,12 @@
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, usePathname, useRouter } from 'next/navigation';
-import { SlidersHorizontal, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { SlidersHorizontal, X, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import ProductCard from '@/components/product/ProductCard';
-import { MOCK_PRODUCTS, COLLECTIONS, getProductsForCollection, getCollectionBySlug } from '@/lib/mockData';
-import type { Product } from '@/types';
+import { getProducts, getCollections, getCategories, getColors, getSizeOptions } from '@/lib/supabase/queries';
+import type { Product, Category, Color, SizeOption } from '@/types';
+import { ProductGridSkeleton } from '@/components/ui/Skeleton';
 
-const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
-const COLORS = [
-  { name: 'Black', hex: '#000' }, { name: 'White', hex: '#fff' },
-  { name: 'Navy', hex: '#1e3a5f' }, { name: 'Grey', hex: '#9ca3af' },
-  { name: 'Red', hex: '#ef4444' }, { name: 'Green', hex: '#22c55e' },
-];
-const CATEGORIES_FILTER = ['All', 'Oversized', 'Graphic', 'Plain', 'Polo', 'Premium'];
 const SORT_OPTIONS = [
   { value: 'featured', label: 'Featured' },
   { value: 'price_asc', label: 'Price: Low to High' },
@@ -25,12 +19,12 @@ const SORT_OPTIONS = [
 interface Filters {
   sizes: string[];
   colors: string[];
-  category: string;
+  categories: string[];
   collections: string[];
   priceMax: number;
 }
 
-const MANAGED_QUERY_KEYS = ['category', 'collections', 'sizes', 'colors', 'priceMax', 'sort'] as const;
+const MANAGED_QUERY_KEYS = ['category', 'categories', 'collections', 'sizes', 'colors', 'priceMax', 'sort'] as const;
 
 function canonicalizeQuery(query: string): string {
   const pairs = Array.from(new URLSearchParams(query).entries())
@@ -42,7 +36,7 @@ function canonicalizeQuery(query: string): string {
 function FilterSection({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode; }) {
   return (
     <div style={{ borderBottom: '1px solid var(--border)' }}>
-      <button onClick={onToggle} className="w-full flex items-center justify-between py-4 text-left">
+      <button onClick={onToggle} className="w-full flex items-center justify-between py-4 text-left cursor-pointer">
         <span className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: 'var(--fg)' }}>{title}</span>
         {open ? <ChevronUp size={14} style={{ color: 'var(--fg-subtle)' }} /> : <ChevronDown size={14} style={{ color: 'var(--fg-subtle)' }} />}
       </button>
@@ -59,33 +53,92 @@ export default function ProductsPage() {
   const lastReplacedQueryRef = useRef<string>('');
   const didHydrateFromUrlRef = useRef(false);
   const syncingFromUrlRef = useRef(false);
-  const [filters, setFilters] = useState<Filters>({ sizes: [], colors: [], category: 'All', collections: [], priceMax: 5000 });
+
+  const [dbCategories, setDbCategories] = useState<Category[]>([]);
+  const [dbColors, setDbColors] = useState<Color[]>([]);
+  const [dbSizes, setDbSizes] = useState<SizeOption[]>([]);
+  const [collections, setCollections] = useState<any[]>([]);
+
+  const [filters, setFilters] = useState<Filters>({ sizes: [], colors: [], categories: [], collections: [], priceMax: 5000 });
   const [sort, setSort] = useState('featured');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [openSections, setOpenSections] = useState({ category: true, collections: false, size: true, color: true, price: true });
   const searchTerm = searchParams.get('search') ?? '';
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
 
-  const getCategoryFromQuery = useCallback((value: string | null) => {
-    if (!value || value.toLowerCase() === 'all') return 'All';
-    const normalized = value.toLowerCase();
-    const exact = CATEGORIES_FILTER.find((cat) => cat.toLowerCase() === normalized);
-    if (exact) return exact;
-    const bySlug = CATEGORIES_FILTER.find((cat) => cat.toLowerCase().replace(/\s+/g, '-') === normalized);
-    return bySlug ?? 'All';
+  // Fetch dynamic metadata from database (categories, colors, sizes, collections)
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([getCategories(), getColors(), getSizeOptions(), getCollections()])
+      .then(([cats, cols, szs, colles]) => {
+        if (!mounted) return;
+        setDbCategories(cats);
+        setDbColors(cols);
+        setDbSizes(szs);
+        setCollections(colles);
+      })
+      .catch((err) => console.error('Error fetching filter options:', err));
+    return () => { mounted = false; };
   }, []);
+
+  // Deduplicate category names cleanly
+  const categoryNamesList = useMemo(() => {
+    const uniqueMap = new Map<string, string>();
+    dbCategories.forEach((c) => {
+      if (c.name && !uniqueMap.has(c.name.toLowerCase().trim())) {
+        uniqueMap.set(c.name.toLowerCase().trim(), c.name.trim());
+      }
+    });
+    return ['All', ...Array.from(uniqueMap.values())];
+  }, [dbCategories]);
+
+  // Deduplicate colors cleanly
+  const uniqueColorsList = useMemo(() => {
+    const uniqueMap = new Map<string, Color>();
+    dbColors.forEach((c) => {
+      if (c.name && !uniqueMap.has(c.name.toLowerCase().trim())) {
+        uniqueMap.set(c.name.toLowerCase().trim(), c);
+      }
+    });
+    return Array.from(uniqueMap.values());
+  }, [dbColors]);
+
+  // Deduplicate sizes cleanly
+  const uniqueSizesList = useMemo(() => {
+    const uniqueMap = new Map<string, SizeOption>();
+    dbSizes.forEach((s) => {
+      if (s.name && !uniqueMap.has(s.name.toUpperCase().trim())) {
+        uniqueMap.set(s.name.toUpperCase().trim(), s);
+      }
+    });
+    return Array.from(uniqueMap.values());
+  }, [dbSizes]);
+
+  const getCategoriesFromQuery = useCallback((value: string | null) => {
+    if (!value || value.toLowerCase() === 'all') return [];
+    const items = value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    return items.map((val) => {
+      const exact = categoryNamesList.find((cat) => cat.toLowerCase() === val);
+      if (exact) return exact;
+      const bySlug = dbCategories.find((cat) => cat.slug.toLowerCase() === val);
+      return bySlug ? bySlug.name : val;
+    }).filter((cat) => cat !== 'All');
+  }, [categoryNamesList, dbCategories]);
 
   const arraysEqual = useCallback((a: string[], b: string[]) => (
     a.length === b.length && a.every((item, i) => item === b[i])
   ), []);
 
-  // Read filter state from URL for deep links / refresh / browser back-forward.
+  // Read filter state from URL
   useEffect(() => {
     syncingFromUrlRef.current = true;
     const params = new URLSearchParams(searchParamsString);
+    const catQuery = params.get('category') || params.get('categories');
     const nextFilters: Filters = {
       sizes: (params.get('sizes') ?? '').split(',').filter(Boolean),
       colors: (params.get('colors') ?? '').split(',').filter(Boolean),
-      category: getCategoryFromQuery(params.get('category')),
+      categories: getCategoriesFromQuery(catQuery),
       collections: (params.get('collections') ?? '').split(',').filter(Boolean),
       priceMax: Number(params.get('priceMax') ?? 5000),
     };
@@ -93,319 +146,362 @@ export default function ProductsPage() {
     const nextSort = params.get('sort') ?? 'featured';
 
     setFilters((prev) => {
-      if (
+      const same =
         arraysEqual(prev.sizes, nextFilters.sizes) &&
         arraysEqual(prev.colors, nextFilters.colors) &&
+        arraysEqual(prev.categories, nextFilters.categories) &&
         arraysEqual(prev.collections, nextFilters.collections) &&
-        prev.category === nextFilters.category &&
-        prev.priceMax === nextFilters.priceMax
-      ) {
-        return prev;
-      }
-      return nextFilters;
+        prev.priceMax === nextFilters.priceMax;
+      return same ? prev : nextFilters;
     });
 
     setSort((prev) => (prev === nextSort ? prev : nextSort));
-    lastReplacedQueryRef.current = searchParamsString;
     didHydrateFromUrlRef.current = true;
-  }, [searchParamsString, getCategoryFromQuery, arraysEqual]);
+    syncingFromUrlRef.current = false;
+  }, [searchParamsString, getCategoriesFromQuery, arraysEqual]);
 
-  // Persist filter state into URL query params.
+  // Sync state to URL params
   useEffect(() => {
-    if (!didHydrateFromUrlRef.current) return;
-    if (syncingFromUrlRef.current) {
-      syncingFromUrlRef.current = false;
+    if (!didHydrateFromUrlRef.current || syncingFromUrlRef.current) return;
+
+    const currentParams = new URLSearchParams(searchParamsString);
+    const newParams = new URLSearchParams();
+
+    currentParams.forEach((val, key) => {
+      if (!MANAGED_QUERY_KEYS.includes(key as any)) {
+        newParams.set(key, val);
+      }
+    });
+
+    if (filters.categories.length > 0) newParams.set('categories', filters.categories.join(','));
+    if (filters.collections.length > 0) newParams.set('collections', filters.collections.join(','));
+    if (filters.sizes.length > 0) newParams.set('sizes', filters.sizes.join(','));
+    if (filters.colors.length > 0) newParams.set('colors', filters.colors.join(','));
+    if (filters.priceMax < 5000) newParams.set('priceMax', String(filters.priceMax));
+    if (sort !== 'featured') newParams.set('sort', sort);
+
+    const canonicalCurrent = canonicalizeQuery(searchParamsString);
+    const canonicalNext = canonicalizeQuery(newParams.toString());
+
+    if (canonicalCurrent !== canonicalNext && lastReplacedQueryRef.current !== canonicalNext) {
+      lastReplacedQueryRef.current = canonicalNext;
+      const targetUrl = canonicalNext ? `${pathname}?${canonicalNext}` : pathname;
+      router.replace(targetUrl, { scroll: false });
+    }
+  }, [filters, sort, pathname, router, searchParamsString]);
+
+  // Fetch products from database
+  useEffect(() => {
+    let mounted = true;
+    setLoadingProducts(true);
+    getProducts({ search: searchTerm })
+      .then((prods) => {
+        if (mounted) {
+          setAllProducts(prods);
+          setLoadingProducts(false);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load products:', err);
+        if (mounted) setLoadingProducts(false);
+      });
+    return () => { mounted = false; };
+  }, [searchTerm]);
+
+  const toggleSize = useCallback((sz: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      sizes: prev.sizes.includes(sz) ? prev.sizes.filter((s) => s !== sz) : [...prev.sizes, sz],
+    }));
+  }, []);
+
+  const toggleColor = useCallback((col: string) => {
+    setFilters((prev) => ({
+      ...prev,
+      colors: prev.colors.includes(col) ? prev.colors.filter((c) => c !== col) : [...prev.colors, col],
+    }));
+  }, []);
+
+  const toggleCategory = useCallback((cat: string) => {
+    if (cat === 'All') {
+      setFilters((prev) => ({ ...prev, categories: [] }));
       return;
     }
+    setFilters((prev) => ({
+      ...prev,
+      categories: prev.categories.includes(cat) ? prev.categories.filter((c) => c !== cat) : [...prev.categories, cat],
+    }));
+  }, []);
 
-    const params = new URLSearchParams(searchParamsString);
+  const resetFilters = useCallback(() => {
+    setFilters({ sizes: [], colors: [], categories: [], collections: [], priceMax: 5000 });
+  }, []);
 
-    MANAGED_QUERY_KEYS.forEach((key) => params.delete(key));
+  const filteredProducts = useMemo(() => {
+    let list = [...allProducts];
 
-    if (filters.category !== 'All') params.set('category', filters.category.toLowerCase().replace(/\s+/g, '-'));
-
-    if (filters.collections.length) params.set('collections', filters.collections.join(','));
-
-    if (filters.sizes.length) params.set('sizes', filters.sizes.join(','));
-
-    if (filters.colors.length) params.set('colors', filters.colors.join(','));
-
-    if (filters.priceMax < 5000) params.set('priceMax', String(filters.priceMax));
-
-    if (sort !== 'featured') params.set('sort', sort);
-
-    if (searchTerm) params.set('search', searchTerm);
-
-    const nextQuery = params.toString();
-    const currentQuery = searchParamsString;
-    const queryChanged = canonicalizeQuery(nextQuery) !== canonicalizeQuery(currentQuery);
-    if (queryChanged && lastReplacedQueryRef.current !== nextQuery) {
-      lastReplacedQueryRef.current = nextQuery;
-      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+    if (filters.categories.length > 0) {
+      list = list.filter((p) =>
+        p.categories?.some((c) => filters.categories.some((fc) => fc.toLowerCase() === c.name.toLowerCase())) ||
+        (p.category && filters.categories.some((fc) => fc.toLowerCase() === p.category!.name.toLowerCase()))
+      );
     }
-  }, [filters, sort, pathname, router, searchTerm, searchParamsString]);
 
-  const toggleSection = (key: keyof typeof openSections) => setOpenSections((p) => ({ ...p, [key]: !p[key] }));
-  const toggleSize = (s: string) => setFilters((p) => ({ ...p, sizes: p.sizes.includes(s) ? p.sizes.filter((x) => x !== s) : [...p.sizes, s] }));
-  const toggleColor = (c: string) => setFilters((p) => ({ ...p, colors: p.colors.includes(c) ? p.colors.filter((x) => x !== c) : [...p.colors, c] }));
-  const toggleCollection = (slug: string) => setFilters((p) => ({ ...p, collections: p.collections.includes(slug) ? p.collections.filter((x) => x !== slug) : [...p.collections, slug] }));
-  const clearFilters = useCallback(() => setFilters({ sizes: [], colors: [], category: 'All', collections: [], priceMax: 5000 }), []);
+    if (filters.collections.length > 0) {
+      list = list.filter((p) =>
+        filters.collections.some((colSlug) => p.slug.includes(colSlug) || p.name.toLowerCase().includes(colSlug.toLowerCase()))
+      );
+    }
 
-  const filtered = useMemo<Product[]>(() => {
-    const search = searchTerm.toLowerCase();
-    let results = MOCK_PRODUCTS.filter((p) => {
-      if (search && !p.name.toLowerCase().includes(search) && !p.description?.toLowerCase().includes(search)) return false;
-      if (filters.category !== 'All') {
-        const selected = filters.category.toLowerCase();
-        const categoryName = p.category?.name.toLowerCase();
-        const categorySlug = p.category?.slug?.toLowerCase();
-        if (categoryName !== selected && categorySlug !== selected) return false;
-      }
-      if (filters.collections.length) {
-        const inAny = filters.collections.some((slug) => {
-          const col = getCollectionBySlug(slug);
-          return col ? getProductsForCollection(col).some((cp) => cp.product_id === p.product_id) : false;
-        });
-        if (!inAny) return false;
-      }
-      if (filters.sizes.length && !p.variants?.some((v) => filters.sizes.includes(v.size))) return false;
-      if (filters.colors.length && !p.variants?.some((v) => filters.colors.includes(v.color))) return false;
-      if (p.price > filters.priceMax) return false;
-      return true;
-    });
-    if (sort === 'price_asc') results = [...results].sort((a, b) => (a.discount_price ?? a.price) - (b.discount_price ?? b.price));
-    if (sort === 'price_desc') results = [...results].sort((a, b) => (b.discount_price ?? b.price) - (a.discount_price ?? a.price));
-    if (sort === 'popular') results = [...results].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-    return results;
-  }, [filters, sort, searchTerm]);
+    if (filters.sizes.length > 0) {
+      list = list.filter((p) =>
+        p.sizes?.some((s) => filters.sizes.some((fs) => fs.toLowerCase() === s.name.toLowerCase())) ||
+        p.variants?.some((v) => v.size && filters.sizes.some((fs) => fs.toLowerCase() === v.size!.toLowerCase()))
+      );
+    }
 
-  const activeFilterCount = filters.sizes.length + filters.colors.length + filters.collections.length + (filters.category !== 'All' ? 1 : 0) + (filters.priceMax < 5000 ? 1 : 0);
+    if (filters.colors.length > 0) {
+      list = list.filter((p) =>
+        p.colors?.some((c) => filters.colors.some((fc) => fc.toLowerCase() === c.name.toLowerCase())) ||
+        p.variants?.some((v) => v.color && filters.colors.some((fc) => fc.toLowerCase() === v.color!.toLowerCase()))
+      );
+    }
 
-  const FilterPanel = () => (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xs font-black tracking-[0.25em] uppercase" style={{ color: 'var(--fg)' }}>Filters</h2>
-        {activeFilterCount > 0 && (
-          <button onClick={clearFilters} className="text-xs font-semibold flex items-center gap-1 hover:opacity-70"
-            style={{ color: 'var(--danger)' }}>
-            <X size={12} /> Clear all
-          </button>
-        )}
-      </div>
+    if (filters.priceMax < 5000) {
+      list = list.filter((p) => p.price <= filters.priceMax);
+    }
 
-      <FilterSection title="Collections" open={openSections.collections} onToggle={() => toggleSection('collections')}>
-        <div className="space-y-2">
-          {COLLECTIONS.map((col) => {
-            const active = filters.collections.includes(col.slug);
+    switch (sort) {
+      case 'price_asc':
+        list.sort((a, b) => a.price - b.price);
+        break;
+      case 'price_desc':
+        list.sort((a, b) => b.price - a.price);
+        break;
+      case 'newest':
+        list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        break;
+      case 'popular':
+        list.sort((a, b) => (b.review_count || 0) - (a.review_count || 0));
+        break;
+      default:
+        break;
+    }
+
+    return list;
+  }, [allProducts, filters, sort]);
+
+  const activeFilterCount =
+    filters.sizes.length +
+    filters.colors.length +
+    filters.categories.length +
+    filters.collections.length +
+    (filters.priceMax < 5000 ? 1 : 0);
+
+  const filterSidebar = (
+    <div className="space-y-1">
+      {/* Category Section — One By One Vertical List with Custom Modern Checkboxes */}
+      <FilterSection title="Category" open={openSections.category} onToggle={() => setOpenSections((v) => ({ ...v, category: !v.category }))}>
+        <div className="space-y-1 pt-1">
+          {categoryNamesList.map((catName) => {
+            const active = catName === 'All' ? filters.categories.length === 0 : filters.categories.includes(catName);
             return (
-              <button key={col.slug} onClick={() => toggleCollection(col.slug)}
-                className="w-full flex items-center gap-3 text-sm">
-                <div className="w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0"
+              <div
+                key={catName}
+                onClick={() => toggleCategory(catName)}
+                className="flex items-center gap-3 px-2 py-2 rounded-lg cursor-pointer transition-all duration-150 group select-none hover:bg-[var(--bg-elevated)]"
+              >
+                {/* Custom Modern Styled Checkbox */}
+                <div
+                  className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150 flex-shrink-0"
                   style={{
-                    borderColor: active ? 'var(--primary)' : 'var(--border)',
                     background: active ? 'var(--primary)' : 'transparent',
-                  }}>
-                  {active && (
-                    <svg viewBox="0 0 10 8" width="10" fill="none">
-                      <path d="M1 4l3 3 5-6" stroke="var(--primary-fg)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
+                    border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                  }}
+                >
+                  {active && <Check size={11} style={{ color: 'var(--primary-fg)', strokeWidth: 3 }} />}
                 </div>
-                <span style={{ color: active ? 'var(--fg)' : 'var(--fg-muted)', fontWeight: active ? 700 : 400 }}>{col.name}</span>
-              </button>
+                <span
+                  className="text-xs transition-colors duration-150 flex-1"
+                  style={{
+                    color: active ? 'var(--fg)' : 'var(--fg-muted)',
+                    fontWeight: active ? 700 : 400,
+                  }}
+                >
+                  {catName}
+                </span>
+              </div>
             );
           })}
         </div>
       </FilterSection>
 
-      <FilterSection title="Category" open={openSections.category} onToggle={() => toggleSection('category')}>
-        <div className="space-y-2">
-          {CATEGORIES_FILTER.map((cat) => (
-            <button key={cat} data-testid={`filter-category-${cat.toLowerCase().replace(/\s+/g, '-')}`} onClick={() => setFilters((p) => ({ ...p, category: cat }))}
-              className="w-full flex items-center gap-3 text-sm">
-              <div className="w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0"
-                style={{
-                  borderColor: filters.category === cat ? 'var(--primary)' : 'var(--border)',
-                  background: filters.category === cat ? 'var(--primary)' : 'transparent',
-                }}>
-                {filters.category === cat && (
-                  <svg viewBox="0 0 10 8" width="10" fill="none">
-                    <path d="M1 4l3 3 5-6" stroke="var(--primary-fg)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </div>
-              <span style={{ color: filters.category === cat ? 'var(--fg)' : 'var(--fg-muted)', fontWeight: filters.category === cat ? 700 : 400 }}>{cat}</span>
-            </button>
-          ))}
-        </div>
-      </FilterSection>
-
-      <FilterSection title="Size" open={openSections.size} onToggle={() => toggleSection('size')}>
-        <div className="flex flex-wrap gap-2">
-          {SIZES.map((s) => {
-            const active = filters.sizes.includes(s);
+      {/* Size Section — Modern Custom Square Checkboxes */}
+      <FilterSection title="Size" open={openSections.size} onToggle={() => setOpenSections((v) => ({ ...v, size: !v.size }))}>
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {uniqueSizesList.map((sz) => {
+            const active = filters.sizes.includes(sz.name);
             return (
-              <button key={s} onClick={() => toggleSize(s)}
-                className="w-10 h-10 text-xs font-bold rounded-lg transition-all"
+              <button
+                key={sz.id}
+                onClick={() => toggleSize(sz.name)}
+                className="w-10 h-10 rounded-lg text-xs font-bold transition-all duration-150 flex items-center justify-center cursor-pointer"
                 style={{
                   background: active ? 'var(--primary)' : 'var(--bg-elevated)',
-                  color: active ? 'var(--primary-fg)' : 'var(--fg-muted)',
+                  color: active ? 'var(--primary-fg)' : 'var(--fg)',
                   border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
-                }}>
-                {s}
+                }}
+              >
+                {sz.name}
               </button>
             );
           })}
         </div>
       </FilterSection>
 
-      <FilterSection title="Colour" open={openSections.color} onToggle={() => toggleSection('color')}>
-        <div className="flex flex-wrap gap-2">
-          {COLORS.map(({ name, hex }) => {
-            const active = filters.colors.includes(name);
+      {/* Colour Section — One By One Vertical List with Color Swatches & Custom Checkboxes */}
+      <FilterSection title="Colour" open={openSections.color} onToggle={() => setOpenSections((v) => ({ ...v, color: !v.color }))}>
+        <div className="space-y-1 pt-1">
+          {uniqueColorsList.map((col) => {
+            const active = filters.colors.includes(col.name);
+            const hex = col.color_code || '#000000';
             return (
-              <button key={name} onClick={() => toggleColor(name)} title={name}
-                className="w-7 h-7 rounded-full transition-all"
-                style={{
-                  background: hex,
-                  outline: active ? `3px solid var(--primary)` : `2px solid var(--border)`,
-                  outlineOffset: active ? '3px' : '2px',
-                  boxShadow: name === 'White' ? 'inset 0 0 0 1px #d1d5db' : undefined,
-                }}
-                aria-label={name} />
+              <div
+                key={col.id}
+                onClick={() => toggleColor(col.name)}
+                className="flex items-center gap-3 px-2 py-2 rounded-lg cursor-pointer transition-all duration-150 select-none hover:bg-[var(--bg-elevated)]"
+              >
+                {/* Custom Modern Styled Checkbox */}
+                <div
+                  className="w-4 h-4 rounded flex items-center justify-center transition-all duration-150 flex-shrink-0"
+                  style={{
+                    background: active ? 'var(--primary)' : 'transparent',
+                    border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                  }}
+                >
+                  {active && <Check size={11} style={{ color: 'var(--primary-fg)', strokeWidth: 3 }} />}
+                </div>
+                <span className="w-3.5 h-3.5 rounded-full border border-black/20 flex-shrink-0" style={{ background: hex }} />
+                <span
+                  className="text-xs transition-colors duration-150 flex-1"
+                  style={{
+                    color: active ? 'var(--fg)' : 'var(--fg-muted)',
+                    fontWeight: active ? 700 : 400,
+                  }}
+                >
+                  {col.name}
+                </span>
+              </div>
             );
           })}
         </div>
       </FilterSection>
 
-      <FilterSection title="Price" open={openSections.price} onToggle={() => toggleSection('price')}>
-        <div>
-          <div className="flex justify-between text-xs mb-3" style={{ color: 'var(--fg-muted)' }}>
-            <span>Rs.0</span>
-            <span style={{ color: 'var(--fg)', fontWeight: 700 }}>Up to Rs.{filters.priceMax}</span>
+      {/* Price Section */}
+      <FilterSection title="Max Price" open={openSections.price} onToggle={() => setOpenSections((v) => ({ ...v, price: !v.price }))}>
+        <div className="pt-2 px-1">
+          <div className="flex justify-between text-xs mb-2 font-mono" style={{ color: 'var(--fg-muted)' }}>
+            <span>₹500</span>
+            <span className="font-bold px-2 py-0.5 rounded-md" style={{ background: 'var(--bg-elevated)', color: 'var(--fg)' }}>₹{filters.priceMax.toLocaleString()}</span>
+            <span>₹5,000</span>
           </div>
           <input type="range" min={500} max={5000} step={100} value={filters.priceMax}
             onChange={(e) => setFilters((p) => ({ ...p, priceMax: Number(e.target.value) }))}
-            className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-            style={{ accentColor: 'var(--primary)', background: 'var(--bg-elevated)' }}
-          />
+            className="w-full accent-black cursor-pointer" />
         </div>
       </FilterSection>
+
+      {activeFilterCount > 0 && (
+        <button onClick={resetFilters} className="w-full py-2.5 mt-4 text-xs font-bold uppercase tracking-wider text-red-500 hover:underline text-center cursor-pointer">
+          Clear All Filters ({activeFilterCount})
+        </button>
+      )}
     </div>
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8 min-h-[80vh]">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4 pb-6" style={{ borderBottom: '1px solid var(--border)' }}>
         <div>
-          <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>
-            {searchTerm ? `Results for "${searchTerm}"` : 'All Products'}
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight" style={{ color: 'var(--fg)' }}>
+            {searchTerm ? `Search: "${searchTerm}"` : filters.categories.length === 1 ? filters.categories[0] : 'All Products'}
           </h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>{filtered.length} products</p>
+          <p className="text-xs mt-1 font-mono uppercase tracking-widest" style={{ color: 'var(--fg-subtle)' }}>
+            Showing {filteredProducts.length} items
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Mobile filter toggle */}
+
+        <div className="flex items-center gap-3 self-end sm:self-auto">
+          {/* Mobile Filter Toggle */}
           <button onClick={() => setMobileFiltersOpen(true)}
-            className="lg:hidden flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
-            style={{ background: 'var(--bg-card)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}>
-            <SlidersHorizontal size={15} />
+            className="lg:hidden flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold"
+            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
+            <SlidersHorizontal size={14} />
             Filters {activeFilterCount > 0 && `(${activeFilterCount})`}
           </button>
 
-          {/* Sort */}
-          <div className="relative">
-            <select value={sort} onChange={(e) => setSort(e.target.value)}
-              className="pl-3 pr-8 py-2.5 text-sm font-semibold rounded-xl cursor-pointer appearance-none outline-none"
-              style={{ background: 'var(--bg-card)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}>
-              {SORT_OPTIONS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
-            </select>
-            <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
-              style={{ color: 'var(--fg-subtle)' }} />
-          </div>
+          {/* Sort Dropdown */}
+          <select value={sort} onChange={(e) => setSort(e.target.value)}
+            className="px-3 py-2 rounded-xl text-xs font-medium outline-none cursor-pointer"
+            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Active filter chips */}
-      {activeFilterCount > 0 && (
-        <div className="flex flex-wrap gap-2 mb-5">
-          {filters.category !== 'All' && (
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
-              {filters.category}
-              <button onClick={() => setFilters((p) => ({ ...p, category: 'All' }))} style={{ color: 'var(--fg-muted)' }}><X size={11} /></button>
-            </span>
-          )}
-          {filters.collections.map((slug) => {
-            const col = COLLECTIONS.find((c) => c.slug === slug);
-            return col ? (
-              <span key={slug} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
-                {col.name}
-                <button onClick={() => toggleCollection(slug)} style={{ color: 'var(--fg-muted)' }}><X size={11} /></button>
-              </span>
-            ) : null;
-          })}
-          {filters.sizes.map((s) => (
-            <span key={s} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
-              Size: {s}
-              <button onClick={() => toggleSize(s)} style={{ color: 'var(--fg-muted)' }}><X size={11} /></button>
-            </span>
-          ))}
-          {filters.colors.map((c) => (
-            <span key={c} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
-              {c}
-              <button onClick={() => toggleColor(c)} style={{ color: 'var(--fg-muted)' }}><X size={11} /></button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex gap-6">
+      {/* Main Grid + Sidebar */}
+      <div className="flex gap-10">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:block w-56 flex-shrink-0 sticky top-24 h-fit">
-          <FilterPanel />
+        <aside className="hidden lg:block w-60 flex-shrink-0 sticky top-24 h-fit max-h-[85vh] overflow-y-auto pr-2">
+          {filterSidebar}
         </aside>
 
-        {/* Products Grid */}
-        <div className="flex-1">
-          {filtered.length === 0 ? (
-            <div className="text-center py-24">
-              <p className="text-lg font-bold mb-2" style={{ color: 'var(--fg)' }}>No products found</p>
-              <p className="text-sm mb-6" style={{ color: 'var(--fg-muted)' }}>Try adjusting your filters.</p>
-              <button onClick={clearFilters}
-                className="px-6 py-2.5 rounded-full font-bold text-sm"
-                style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                Clear Filters
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 sm:gap-5">
-              {filtered.map((product) => (
-                <ProductCard key={product.product_id} product={product} />
+        {/* Product Grid */}
+        <main className="flex-1">
+          {loadingProducts ? (
+            <ProductGridSkeleton count={9} />
+          ) : filteredProducts.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {filteredProducts.map((product) => (
+                <ProductCard key={product.id || product.product_id} product={product} />
               ))}
             </div>
+          ) : (
+            <div className="py-20 text-center rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px dashed var(--border)' }}>
+              <p className="text-lg font-bold" style={{ color: 'var(--fg)' }}>No products found</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Try adjusting your filters or search criteria.</p>
+              {activeFilterCount > 0 && (
+                <button onClick={resetFilters}
+                  className="mt-4 px-4 py-2 text-xs font-bold rounded-xl"
+                  style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+                  Clear All Filters
+                </button>
+              )}
+            </div>
           )}
-        </div>
+        </main>
       </div>
 
-      {/* Mobile Filter Drawer */}
+      {/* Mobile Drawer */}
       {mobileFiltersOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => setMobileFiltersOpen(false)} />
-          <div className="absolute bottom-0 left-0 right-0 rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto"
-            style={{ background: 'var(--bg-card)', boxShadow: 'var(--shadow-lg)' }}>
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-black" style={{ color: 'var(--fg)' }}>Filters</h2>
-              <button onClick={() => setMobileFiltersOpen(false)} style={{ color: 'var(--fg-muted)' }}><X size={20} /></button>
+        <div className="fixed inset-0 z-50 flex lg:hidden">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileFiltersOpen(false)} />
+          <div className="relative ml-auto w-full max-w-xs h-full p-6 overflow-y-auto flex flex-col justify-between"
+            style={{ background: 'var(--bg-card)', color: 'var(--fg)' }}>
+            <div>
+              <div className="flex items-center justify-between pb-4 mb-4" style={{ borderBottom: '1px solid var(--border)' }}>
+                <h2 className="text-sm font-black uppercase tracking-wider">Filters</h2>
+                <button onClick={() => setMobileFiltersOpen(false)}><X size={18} /></button>
+              </div>
+              {filterSidebar}
             </div>
-            <FilterPanel />
             <button onClick={() => setMobileFiltersOpen(false)}
-              className="w-full mt-5 py-3.5 rounded-full font-bold text-sm"
+              className="w-full py-3 text-xs font-bold uppercase tracking-wider rounded-xl mt-6"
               style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              Show {filtered.length} Products
+              Apply Filters ({filteredProducts.length} Results)
             </button>
           </div>
         </div>

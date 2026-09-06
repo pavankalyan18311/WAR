@@ -1,52 +1,85 @@
-// ─── Product Types ───────────────────────────────────────────────────────────
-export type FitType = 'oversized' | 'regular' | 'slim' | 'relaxed';
+// ─── Product & Relational Schema Types ───────────────────────────────────────────
+export type FitType = 'oversized' | 'regular' | 'slim' | 'relaxed' | string;
 export type ProductStatus = 'active' | 'draft' | 'archived';
-export type SizeEnum = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL';
+export type SizeEnum = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | '3XL' | string;
 
 export interface Category {
-  id: number;
+  id: string;
   name: string;
   slug: string;
   description?: string;
+  parent_id?: string | null;
   image?: string;
   itemCount?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Color {
+  id: string;
+  name: string;
+  color_code?: string | null;
+  hex?: string;
+  created_at?: string;
+}
+
+export interface SizeOption {
+  id: string;
+  name: string;
+  sort_order: number;
+  created_at?: string;
 }
 
 export interface ProductVariant {
   variant_id: string;
+  id?: string;
   product_id: string;
   sku: string;
-  color: string;
+  color_id?: string | null;
+  size_option_id?: string | null;
+  color?: string;
   colorHex?: string;
-  size: SizeEnum;
+  size?: SizeEnum;
+  price: number;
+  compare_at_price?: number | null;
   stock_quantity: number;
-  price_override?: number;
+  status: 'active' | 'inactive';
 }
 
 export interface ProductMedia {
+  id?: string;
+  product_id?: string;
+  variant_id?: string | null;
+  storage_path?: string;
   url: string;
   alt?: string;
   type: 'image' | 'video';
+  mime_type?: string | null;
+  sort_order?: number;
 }
 
 export interface Product {
   product_id: string;
-  sku: string;
+  id: string;
+  sku?: string;
   name: string;
   slug: string;
   description: string;
+  fabric?: string | null;
+  fit?: string | null;
+  pattern?: string | null;
+  sleeve_type?: string | null;
+  neck_type?: string | null;
+  gender?: string | null;
   price: number;
+  compare_at_price?: number | null;
   discount_price?: number;
-  category_id: number;
+  categories?: Category[];
+  category_id?: string;
   category?: Category;
   status: ProductStatus;
-  color?: string;
-  colors?: { name: string; hex: string }[];
-  size?: SizeEnum;
-  fabric?: string;
-  material?: string;
-  weight?: number;
-  fit_type?: FitType;
+  colors?: { name: string; hex: string; color_id?: string }[];
+  sizes?: { name: string; size_option_id?: string }[];
   stock_quantity?: number;
   is_in_stock?: boolean;
   tags?: string[];
@@ -61,6 +94,9 @@ export interface Product {
 // ─── Cart Types ───────────────────────────────────────────────────────────────
 export interface CartItem {
   cart_item_id: string;
+  id?: string;
+  cart_id?: string;
+  variant_id: string;
   product: Product;
   variant: ProductVariant;
   quantity: number;
@@ -77,6 +113,7 @@ export interface CartSummary {
 }
 
 export interface Cart {
+  cart_id?: string;
   items: CartItem[];
   summary: CartSummary;
 }
@@ -102,6 +139,8 @@ export interface User {
 
 export interface Address {
   address_id?: string;
+  id?: string;
+  user_id?: string;
   full_name: string;
   phone: string;
   address_line_1: string;
@@ -115,19 +154,22 @@ export interface Address {
 
 // ─── Order Types ──────────────────────────────────────────────────────────────
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded';
-export type PaymentMethod = 'upi' | 'card' | 'net_banking' | 'cod' | 'loyalty_points';
+export type PaymentMethod = 'upi' | 'card' | 'net_banking' | 'cod' | 'loyalty_points' | string;
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 
 export interface OrderItem {
+  id?: string;
   product: Product;
   variant: ProductVariant;
   quantity: number;
   unit_price: number;
+  total_price?: number;
 }
 
 export interface Order {
   order_id: string;
-  order_number: string;
+  id?: string;
+  order_number?: string;
   user_id: string;
   items: OrderItem[];
   status: OrderStatus;
@@ -147,6 +189,9 @@ export interface Order {
 // ─── Wishlist Types ───────────────────────────────────────────────────────────
 export interface WishlistItem {
   wishlist_item_id: string;
+  id?: string;
+  user_id?: string;
+  product_id?: string;
   product: Product;
   added_at: string;
 }
@@ -166,10 +211,12 @@ export interface Review {
 // ─── Filter / Search Types ────────────────────────────────────────────────────
 export interface ProductFilters {
   category?: string;
+  categoryId?: string;
   color?: string[];
   size?: SizeEnum[];
   min_price?: number;
   max_price?: number;
+  gender?: string;
   in_stock?: boolean;
   sort?: 'price_asc' | 'price_desc' | 'newest' | 'popular';
   page?: number;

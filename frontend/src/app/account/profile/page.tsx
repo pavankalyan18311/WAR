@@ -1,40 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { User, MapPin, Package, Heart, LogOut, Plus, Pencil, Trash2, CheckCircle, X, Home, Briefcase, MoreHorizontal, LocateFixed, AlertCircle } from 'lucide-react';
+import { User, MapPin, Package, Heart, LogOut, Plus, Pencil, Trash2, CheckCircle, X, Home, Briefcase, MoreHorizontal, LocateFixed, AlertCircle, Copy, Tag, Check } from 'lucide-react';
 import type { Address } from '@/types';
 import ScrollReveal from '@/components/ui/ScrollReveal';
 import { useAuthStore } from '@/store/authStore';
+import { createClient } from '@/lib/supabase/client';
 
-// ─── Mock addresses ───────────────────────────────────────────────────────────
-const INITIAL_ADDRESSES: (Address & { label: string })[] = [
-  {
-    address_id: 'addr-1',
-    label: 'Home',
-    full_name: 'Arjun Sharma',
-    phone: '+91 98765 43210',
-    address_line_1: '42 Koramangala 4th Block',
-    address_line_2: 'Near Jyoti Nivas College',
-    city: 'Bengaluru',
-    state: 'Karnataka',
-    pincode: '560034',
-    country: 'India',
-    is_default: true,
-  },
-  {
-    address_id: 'addr-2',
-    label: 'Work',
-    full_name: 'Arjun Sharma',
-    phone: '+91 98765 43210',
-    address_line_1: '14th Floor, RMZ Infinity',
-    address_line_2: 'Old Madras Road',
-    city: 'Bengaluru',
-    state: 'Karnataka',
-    pincode: '560016',
-    country: 'India',
-    is_default: false,
-  },
+type AddressWithLabel = Address & { label: string };
+
+const COUPONS = [
+  { code: 'WAR10', title: '10% OFF Oversized Tees', desc: 'Valid on all Oversized T-Shirts. Min cart ₹999.', expires: 'Valid till 31 Dec' },
+  { code: 'WELCOME20', title: '20% OFF First Order', desc: 'Exclusive new member discount on orders above ₹1499.', expires: 'Valid till 31 Dec' },
+  { code: 'FREESHIP', title: 'Free Express Shipping', desc: 'Get zero shipping fee on orders above ₹799.', expires: 'Auto-applies' },
 ];
 
 const LABEL_ICONS: Record<string, React.ElementType> = {
@@ -78,8 +57,10 @@ type ReverseGeocodeResponse = {
 };
 
 export default function AccountProfilePage() {
-  const { user, isAuthenticated, logout } = useAuthStore();
-  const [addresses, setAddresses] = useState<AddressWithLabel[]>(INITIAL_ADDRESSES);
+  const { user, isAuthenticated, logout, updateProfile } = useAuthStore();
+  const [addresses, setAddresses] = useState<AddressWithLabel[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(true);
+  const [rewardPoints, setRewardPoints] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -88,8 +69,125 @@ export default function AccountProfilePage() {
   const [locationError, setLocationError] = useState('');
   const [locationSuccess, setLocationSuccess] = useState('');
 
+  // Profile Edit State
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    dob: '',
+  });
+  const [profileUpdating, setProfileUpdating] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState(false);
+  const [copiedCoupon, setCopiedCoupon] = useState<string | null>(null);
+
+  const handleCopyCoupon = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCoupon(code);
+    setTimeout(() => setCopiedCoupon(null), 2000);
+  };
+
+  // Fetch live addresses & rewards from Supabase
+  useEffect(() => {
+    async function loadUserData() {
+      if (!user?.id) {
+        setLoadingAddresses(false);
+        return;
+      }
+      const supabase = createClient();
+
+      // Load Addresses via /api/addresses
+      try {
+        const response = await fetch(`/api/addresses?user_id=${user.id}`);
+        if (response.ok) {
+          const resData = await response.json();
+          if (resData.addresses && Array.isArray(resData.addresses)) {
+            const mapped: AddressWithLabel[] = resData.addresses.map((a: any) => ({
+              address_id: a.id,
+              label: a.address_line_2 && ['Home', 'Work'].includes(a.address_line_2) ? a.address_line_2 : 'Home',
+              full_name: a.full_name,
+              phone: a.phone,
+              address_line_1: a.address_line_1,
+              address_line_2: a.address_line_2,
+              city: a.city,
+              state: a.state,
+              pincode: a.pincode,
+              country: a.country ?? 'India',
+              is_default: a.is_default ?? false,
+            }));
+            setAddresses(mapped);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load addresses', e);
+      } finally {
+        setLoadingAddresses(false);
+      }
+
+      // Calculate reward points from user orders (5 points per ₹100 spent)
+      try {
+        const { data: orderData } = await supabase
+          .from('orders')
+          .select('total')
+          .eq('user_id', user.id);
+
+        if (orderData && orderData.length > 0) {
+          const totalSpent = orderData.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
+          setRewardPoints(Math.floor((totalSpent / 100) * 5));
+        } else {
+          setRewardPoints(0);
+        }
+      } catch (e) {
+        console.error('Failed to calculate reward points', e);
+      }
+    }
+
+    loadUserData();
+  }, [user?.id]);
+
+  const openProfileModal = () => {
+    const meta = user?.user_metadata || {};
+    const nameParts = (meta.name || (user as any)?.name || '').split(' ');
+    setProfileForm({
+      firstName: meta.first_name || nameParts[0] || '',
+      lastName: meta.last_name || nameParts.slice(1).join(' ') || '',
+      phone: user?.phone || meta.phone || '',
+      dob: meta.dob || '',
+    });
+    setProfileError('');
+    setProfileSuccess(false);
+    setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileForm.firstName.trim()) {
+      setProfileError('First name is required.');
+      return;
+    }
+    try {
+      setProfileUpdating(true);
+      setProfileError('');
+      await updateProfile({
+        firstName: profileForm.firstName,
+        lastName: profileForm.lastName,
+        phone: profileForm.phone,
+        dob: profileForm.dob,
+      });
+      setProfileSuccess(true);
+      setTimeout(() => {
+        setProfileSuccess(false);
+        setShowProfileModal(false);
+      }, 1200);
+    } catch (err: any) {
+      setProfileError(err.message || 'Failed to update profile.');
+    } finally {
+      setProfileUpdating(false);
+    }
+  };
+
   const openAdd = () => {
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, full_name: user?.user_metadata?.name || `${user?.user_metadata?.first_name || ''} ${user?.user_metadata?.last_name || ''}`.trim() || '' });
     setEditing(null);
     setLocationError('');
     setLocationSuccess('');
@@ -112,25 +210,122 @@ export default function AccountProfilePage() {
     setLocationLoading(false);
   };
 
-  const setField = (key: keyof FormState, value: string) =>
+  const setField = (key: keyof FormState, value: string) => {
     setForm((f) => ({ ...f, [key]: value }));
 
-  const handleSave = () => {
-    if (!form.full_name || !form.phone || !form.address_line_1 || !form.city || !form.pincode) return;
-    if (editing) {
-      setAddresses((prev) => prev.map((a) => a.address_id === editing ? { ...form, address_id: editing } as AddressWithLabel : a));
-    } else {
-      const newAddr: AddressWithLabel = { ...form, address_id: `addr-${Date.now()}` } as AddressWithLabel;
-      setAddresses((prev) => [...prev, newAddr]);
+    // Auto-fill City & State on 6-digit Pincode entry
+    if (key === 'pincode') {
+      const cleanPin = value.replace(/\D/g, '').slice(0, 6);
+      if (cleanPin.length === 6) {
+        fetch(`https://api.postalpincode.in/pincode/${cleanPin}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && data[0]?.Status === 'Success' && data[0]?.PostOffice?.length > 0) {
+              const po = data[0].PostOffice[0];
+              const city = po.District || po.Division || po.Name || '';
+              const state = po.State || '';
+              setForm((f) => ({
+                ...f,
+                city: city || f.city,
+                state: state || f.state,
+              }));
+              setLocationSuccess(`Auto-filled city (${city}) & state (${state}) for pincode ${cleanPin}`);
+            }
+          })
+          .catch(() => {});
+      }
     }
-    setSaved(true);
-    setTimeout(() => { setSaved(false); closeForm(); }, 1200);
   };
 
-  const handleDelete = (id: string) => setAddresses((prev) => prev.filter((a) => a.address_id !== id));
+  const handleSave = async () => {
+    if (!form.full_name || !form.phone || !form.address_line_1 || !form.city || !form.pincode) {
+      setLocationError('Please fill in all required address fields marked with *');
+      return;
+    }
 
-  const setDefault = (id: string) =>
+    if (!user?.id) {
+      setLocationError('You must be logged in to save an address.');
+      return;
+    }
+
+    try {
+      const payload = {
+        user_id: user.id,
+        full_name: form.full_name,
+        phone: form.phone,
+        address_line_1: form.address_line_1,
+        address_line_2: form.address_line_2 || null,
+        city: form.city,
+        state: form.state || 'Karnataka',
+        pincode: form.pincode,
+        country: form.country ?? 'India',
+        is_default: addresses.length === 0,
+      };
+
+      const res = await fetch('/api/addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const resData = await res.json();
+      if (res.ok && resData.address) {
+        const savedItem: AddressWithLabel = {
+          address_id: resData.address.id || `addr-${Date.now()}`,
+          label: form.label || 'Home',
+          full_name: resData.address.full_name,
+          phone: resData.address.phone,
+          address_line_1: resData.address.address_line_1,
+          address_line_2: resData.address.address_line_2,
+          city: resData.address.city,
+          state: resData.address.state,
+          pincode: resData.address.pincode,
+          country: resData.address.country,
+          is_default: resData.address.is_default,
+        };
+
+        if (editing) {
+          setAddresses((prev) => prev.map((a) => a.address_id === editing ? savedItem : a));
+        } else {
+          setAddresses((prev) => [savedItem, ...prev]);
+        }
+        setSaved(true);
+        setTimeout(() => { setSaved(false); closeForm(); }, 1200);
+      } else {
+        setLocationError(resData.error || 'Failed to save address to database.');
+      }
+    } catch (e: any) {
+      console.error('Failed to save address', e);
+      setLocationError(e.message || 'Failed to save address.');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/addresses?id=${id}&user_id=${user?.id || ''}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Failed to delete address', e);
+    }
+    setAddresses((prev) => prev.filter((a) => a.address_id !== id));
+  };
+
+  const setDefault = async (id: string) => {
+    if (!user?.id) return;
+    try {
+      await fetch('/api/addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          is_default: true,
+          ...addresses.find((a) => a.address_id === id),
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to update default address', e);
+    }
     setAddresses((prev) => prev.map((a) => ({ ...a, is_default: a.address_id === id })));
+  };
 
   const reverseGeocode = async (lat: number, lon: number): Promise<ReverseGeocodeResponse> => {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
@@ -205,7 +400,7 @@ export default function AccountProfilePage() {
   };
 
   const displayName = user?.name || 'Guest User';
-  const displayEmail = user?.email || 'guest@threadx.in';
+  const displayEmail = user?.email || 'guest@war.in';
   const displayPhone = user?.phone ? `+91 ${user.phone}` : 'Not added';
   const displayDob = user?.dob || 'Not added';
   const joined = user?.created_at
@@ -228,6 +423,24 @@ export default function AccountProfilePage() {
               <p className="text-sm" style={{ color: 'var(--fg-muted)' }}>{displayEmail}</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile Navigation Bar */}
+      <div className="md:hidden border-b overflow-x-auto no-scrollbar" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+        <div className="flex px-5 py-2.5 gap-2 min-w-max">
+          {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
+            <Link key={href} href={href}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all"
+              style={{
+                background: active ? 'var(--primary)' : 'var(--bg-elevated)',
+                color: active ? 'var(--primary-fg)' : 'var(--fg-muted)',
+                border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
+              }}>
+              <Icon size={14} />
+              {label}
+            </Link>
+          ))}
         </div>
       </div>
 
@@ -266,15 +479,15 @@ export default function AccountProfilePage() {
               <div className="rounded-2xl p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                 <div className="flex items-center justify-between mb-5">
                   <h2 className="font-black text-base" style={{ color: 'var(--fg)' }}>Personal Information</h2>
-                  <button className="text-xs font-semibold hover:opacity-70 flex items-center gap-1"
+                  <button onClick={openProfileModal} className="text-xs font-semibold hover:opacity-70 flex items-center gap-1"
                     style={{ color: 'var(--accent)' }}>
                     <Pencil size={12} /> Edit
                   </button>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4 text-sm">
                   {[
-                    { label: 'First Name', value: user?.first_name || displayName.split(' ')[0] || 'Not added' },
-                    { label: 'Last Name', value: user?.last_name || displayName.split(' ').slice(1).join(' ') || 'Not added' },
+                    { label: 'First Name', value: user?.user_metadata?.first_name || displayName.split(' ')[0] || 'Not added' },
+                    { label: 'Last Name', value: user?.user_metadata?.last_name || displayName.split(' ').slice(1).join(' ') || 'Not added' },
                     { label: 'Mobile Number', value: displayPhone },
                     { label: 'Email Address', value: displayEmail },
                     { label: 'Date of Birth', value: displayDob },
@@ -287,34 +500,7 @@ export default function AccountProfilePage() {
                   ))}
                 </div>
 
-                <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-                  <p className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: 'var(--fg-muted)' }}>Verification Status</p>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full"
-                      style={{ background: user?.mobile_verified ? 'rgba(34,197,94,0.12)' : 'rgba(156,163,175,0.12)', color: user?.mobile_verified ? '#22c55e' : '#9ca3af' }}>
-                      Mobile {user?.mobile_verified ? 'Verified' : 'Not Verified'}
-                    </span>
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full"
-                      style={{ background: user?.email_verified ? 'rgba(34,197,94,0.12)' : 'rgba(156,163,175,0.12)', color: user?.email_verified ? '#22c55e' : '#9ca3af' }}>
-                      Email {user?.email_verified ? 'Verified' : 'Not Verified'}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button className="px-3 py-2 rounded-xl text-xs font-semibold"
-                    style={{ background: 'var(--bg-elevated)', color: 'var(--fg)' }}>
-                    Edit Profile
-                  </button>
-                  <button className="px-3 py-2 rounded-xl text-xs font-semibold"
-                    style={{ background: 'var(--bg-elevated)', color: 'var(--fg)' }}>
-                    Change Email
-                  </button>
-                  <button className="px-3 py-2 rounded-xl text-xs font-semibold"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                    Manage Addresses
-                  </button>
-                </div>
 
                 {!isAuthenticated && (
                   <p className="mt-4 text-xs" style={{ color: 'var(--warning)' }}>
@@ -413,13 +599,59 @@ export default function AccountProfilePage() {
                   Earn 5 points for every Rs.100 spent. Exclusive member offers will appear here.
                 </p>
                 <div className="mt-4 grid sm:grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)' }}>
+                  <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                     <p className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Reward Points</p>
-                    <p className="text-xl font-black mt-1" style={{ color: 'var(--fg)' }}>{isAuthenticated ? '280' : '0'}</p>
+                    <p className="text-2xl font-black mt-1" style={{ color: 'var(--accent)' }}>{rewardPoints}</p>
+                    <p className="text-[11px] mt-1" style={{ color: 'var(--fg-muted)' }}>Earn 5 points for every ₹100 spent</p>
                   </div>
-                  <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)' }}>
-                    <p className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Active Coupons</p>
-                    <p className="text-xl font-black mt-1" style={{ color: 'var(--fg)' }}>{isAuthenticated ? '2' : '0'}</p>
+                  <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                    <p className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Available Coupons</p>
+                    <p className="text-2xl font-black mt-1" style={{ color: 'var(--fg)' }}>{COUPONS.length}</p>
+                    <p className="text-[11px] mt-1" style={{ color: 'var(--fg-muted)' }}>Active discounts for your account</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-3">
+                  <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Active Offers & Promo Codes</p>
+                  <div className="grid gap-3">
+                    {COUPONS.map((coupon) => (
+                      <div key={coupon.code}
+                        className="rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 transition-all"
+                        style={{ background: 'var(--bg-elevated)', border: '1px dashed var(--border)' }}>
+                        <div className="flex items-start gap-3">
+                          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                            style={{ background: 'rgba(234, 179, 8, 0.12)', color: '#eab308' }}>
+                            <Tag size={16} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-sm" style={{ color: 'var(--fg)' }}>{coupon.code}</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>{coupon.expires}</span>
+                            </div>
+                            <p className="font-semibold text-xs mt-0.5" style={{ color: 'var(--fg)' }}>{coupon.title}</p>
+                            <p className="text-[11px]" style={{ color: 'var(--fg-muted)' }}>{coupon.desc}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleCopyCoupon(coupon.code)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 hover:opacity-90"
+                          style={{
+                            background: copiedCoupon === coupon.code ? '#22c55e' : 'var(--primary)',
+                            color: 'var(--primary-fg)',
+                          }}
+                        >
+                          {copiedCoupon === coupon.code ? (
+                            <>
+                              <Check size={12} /> Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} /> Copy Code
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -555,6 +787,97 @@ export default function AccountProfilePage() {
                     className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90"
                     style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
                     {editing ? 'Save Changes' : 'Add Address'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Edit Profile Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setShowProfileModal(false)} />
+          <div className="relative w-full max-w-md rounded-2xl p-6"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-black text-base" style={{ color: 'var(--fg)' }}>Edit Profile Details</h3>
+              <button onClick={() => setShowProfileModal(false)} style={{ color: 'var(--fg-muted)' }}><X size={18} /></button>
+            </div>
+
+            {profileSuccess ? (
+              <div className="flex flex-col items-center py-8">
+                <CheckCircle size={40} style={{ color: '#22c55e' }} className="mb-3 animate-bounce" />
+                <p className="font-bold text-base" style={{ color: 'var(--fg)' }}>Profile updated successfully!</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {profileError && (
+                  <div className="p-3 rounded-xl text-xs font-semibold flex items-center gap-2"
+                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}>
+                    <AlertCircle size={14} />
+                    {profileError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>First Name *</label>
+                    <input
+                      value={profileForm.firstName}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, firstName: e.target.value }))}
+                      placeholder="First Name"
+                      className="input-field"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Last Name</label>
+                    <input
+                      value={profileForm.lastName}
+                      onChange={(e) => setProfileForm((f) => ({ ...f, lastName: e.target.value }))}
+                      placeholder="Last Name"
+                      className="input-field"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Mobile Phone</label>
+                  <input
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="10-digit mobile number"
+                    type="tel"
+                    className="input-field"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Date of Birth</label>
+                  <input
+                    value={profileForm.dob}
+                    onChange={(e) => setProfileForm((f) => ({ ...f, dob: e.target.value }))}
+                    type="date"
+                    className="input-field cursor-pointer"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setShowProfileModal(false)}
+                    className="flex-1 py-3 rounded-xl font-bold text-sm border"
+                    style={{ borderColor: 'var(--border)', color: 'var(--fg-muted)' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveProfile}
+                    disabled={profileUpdating}
+                    className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 disabled:opacity-50"
+                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
+                  >
+                    {profileUpdating ? 'Saving...' : 'Save Profile'}
                   </button>
                 </div>
               </div>

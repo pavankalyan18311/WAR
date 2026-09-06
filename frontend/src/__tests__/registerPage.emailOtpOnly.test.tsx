@@ -47,4 +47,17 @@ describe('Register Page - Email OTP only onboarding', () => {
     expect(screen.queryByText(/^send otp$/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/mobile number/i)).not.toBeInTheDocument();
   });
+
+  it('shows a resend otp action when the registration otp stage is active', async () => {
+    await act(async () => {
+      useAuthStore.setState({
+        flowStage: 'email_otp',
+        pendingRegistration: { firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com', dob: '', password: 'password123' },
+      });
+    });
+
+    render(<RegisterPage />);
+
+    expect(screen.getByRole('button', { name: /resend otp/i })).toBeInTheDocument();
+  });
 });

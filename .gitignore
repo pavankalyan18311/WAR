@@ -32,3 +32,10 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 frontend/next-env.d.ts
+
+# Tooling & temporary outputs
+powershell.cmd
+frontend/.next_bkp/
+*_output.txt
+*.log
+

@@ -1,399 +1,431 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import type { User } from '@/types';
-import api from '@/lib/api';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { Session, User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
+import { useCartStore } from "@/store/cartStore";
 
-type AuthFlowStage = 'mobile' | 'mobile_otp' | 'register' | 'email_otp' | 'authenticated';
-
-interface PendingRegistration {
+interface RegisterData {
   firstName: string;
   lastName: string;
   email: string;
   dob: string;
+  phone?: string;
   password: string;
+  confirmPassword: string;
 }
 
 interface AuthStore {
   user: User | null;
-  isLoading: boolean;
+  session: Session | null;
+  loading: boolean;
   isAuthenticated: boolean;
-  sessionToken: string | null;
-  sessionExpiresAt: number | null;
-  flowStage: AuthFlowStage;
-  /** true while SMS OTP has been sent and waiting for user entry */
-  mobileOtpSent: boolean;
-  emailOtpSent: boolean;
-  /** @deprecated kept for API compat — no longer used */
-  mobileWidgetOpen: boolean;
-  /** populated by send/verify failure so components can show it */
-  mobileWidgetError: string;
-  currentMobile: string;
-  pendingRegistration: PendingRegistration | null;
-  passwordResetEmail: string;
-  /**
-   * Step 1: Sends a 6-digit SMS OTP to the mobile via MSG91 direct API.
-   * Sets flowStage to 'mobile_otp' on success.
-   */
-  requestMobileOtp: (mobile: string) => Promise<void>;
-  cancelMobileWidget: () => void;
-  /**
-   * Step 2: Verifies the SMS OTP the user typed.
-   * Sets flowStage to 'register' on success.
-   */
-  verifyMobileOtp: (otp: string) => Promise<{ requiresRegistration: boolean }>;
-  submitRegistration: (payload: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    dob: string;
-    password: string;
-    confirmPassword: string;
-  }) => Promise<void>;
+  role: string;
+  flowStage: "register" | "email_otp" | "authenticated";
+  pendingRegistration: RegisterData | null;
+
+  signUp: (data: any) => Promise<void>;
+  submitRegistration: (data: any) => Promise<void>;
   requestEmailOtp: () => Promise<void>;
+  verifyOtp: (data: { email: string; otp: string }) => Promise<void>;
   verifyEmailOtp: (otp: string) => Promise<void>;
   requestPasswordResetOtp: (email: string) => Promise<void>;
-  resetPasswordWithOtp: (payload: {
+  resetPasswordWithOtp: (data: {
     email: string;
     otp: string;
     password: string;
     confirmPassword: string;
   }) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, phone: string, password: string) => Promise<{ requiresConfirmation?: boolean }>;
+  login: (email: string, password: string) => Promise<{ role: string }>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
-  setUser: (user: User | null) => void;
+  getSession: () => Promise<void>;
+  updateProfile: (data: { firstName: string; lastName: string; phone?: string; dob?: string }) => Promise<void>;
   resetFlow: () => void;
 }
 
-// ── Supabase email OTP helpers ────────────────────────────────────────────────
-// These call Next.js Route Handlers which run server-side.
-// Supabase keys are NEVER exposed to the browser.
-
-async function parseJsonSafe(response: Response): Promise<Record<string, unknown>> {
-  try {
-    return (await response.json()) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-async function callEmailOtp(body: Record<string, string>) {
-  const res = await fetch('/api/auth/email-otp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await parseJsonSafe(res);
-  if (!res.ok) throw new Error(data?.error ?? 'Email OTP request failed.');
-}
-
-async function callPasswordReset(body: Record<string, string>) {
-  const res = await fetch('/api/auth/password-reset', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const data = await parseJsonSafe(res);
-  if (!res.ok) throw new Error(data?.error ?? 'Password reset request failed.');
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-function normalizePhone(phone: string) {
-  return phone.replace(/\D/g, '').slice(-10);
-}
-
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
-}
-
-function extractApiError(err: unknown, fallback: string) {
-  const e = err as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-  return e?.response?.data?.detail || e?.response?.data?.message || e?.message || fallback;
-}
-
-function parseJwtExp(token: string): number | null {
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    if (typeof payload?.exp === 'number') return payload.exp * 1000;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function mapBackendUser(user: Partial<User>, fallback?: Partial<PendingRegistration>): User {
-  const fullName = user.name || `${fallback?.firstName ?? ''} ${fallback?.lastName ?? ''}`.trim() || 'ThreadX User';
-  const [firstName, ...rest] = fullName.split(' ');
-  return {
-    user_id: user.user_id || `user-${Date.now()}`,
-    name: fullName,
-    first_name: user.first_name || fallback?.firstName || firstName || '',
-    last_name: user.last_name || fallback?.lastName || rest.join(' ') || '',
-    email: user.email || fallback?.email || '',
-    phone: user.phone,
-    dob: user.dob || fallback?.dob,
-    role: (user.role as User['role']) || 'customer',
-    avatar: user.avatar,
-    is_verified: user.is_verified ?? true,
-    mobile_verified: user.mobile_verified ?? true,
-    email_verified: user.email_verified ?? true,
-    created_at: user.created_at,
-  };
-}
-
-// ── Store ─────────────────────────────────────────────────────────────────────
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
       user: null,
-      isLoading: false,
+      session: null,
+      loading: false,
       isAuthenticated: false,
-      sessionToken: null,
-      sessionExpiresAt: null,
-      flowStage: 'register',
-      mobileOtpSent: false,
-      emailOtpSent: false,
-      mobileWidgetOpen: false,
-      mobileWidgetError: '',
-      currentMobile: '',
+      role: "customer",
+      flowStage: "register",
       pendingRegistration: null,
-      passwordResetEmail: '',
 
-      // ── Step 1: Send SMS OTP via MSG91 direct API (backend proxy) ──────────
-      requestMobileOtp: async (mobile) => {
-        const cleaned = normalizePhone(mobile);
-        if (cleaned.length !== 10) throw new Error('Please enter a valid 10-digit mobile number.');
+      // ===============================
+      // Registration
+      // ===============================
 
-        set({ mobileWidgetError: '', mobileOtpSent: false });
-        try {
-          const { data } = await api.post('/auth/send-mobile-otp', { mobile: cleaned });
-          if (data?.message) {
-            set({
-              currentMobile: cleaned,
-              mobileOtpSent: true,
-              flowStage: 'mobile_otp',
-              mobileWidgetError: '',
-            });
-          }
-        } catch (err) {
-          throw new Error(extractApiError(err, 'Failed to send OTP. Please try again.'));
+      submitRegistration: async (data) => {
+        const supabase = createClient();
+        set({
+          loading: true,
+          pendingRegistration: data,
+        });
+
+        if (!data.firstName.trim()) throw new Error("First name is required.");
+        if (!data.lastName.trim()) throw new Error("Last name is required.");
+        if (!data.email.trim()) throw new Error("Email is required.");
+        if (data.password.length < 8) throw new Error("Password must be at least 8 characters.");
+        if (data.password !== data.confirmPassword) throw new Error("Passwords do not match.");
+
+        const email = data.email.trim().toLowerCase();
+
+        const { error } = await supabase.auth.signUp({
+          email,
+          password: data.password,
+          options: {
+            data: {
+              first_name: data.firstName,
+              last_name: data.lastName,
+              phone: data.phone ?? "",
+              dob: data.dob,
+              role: "customer",
+            },
+          },
+        });
+
+        if (error) {
+          set({ loading: false });
+          throw error;
         }
-      },
-
-      // Reset back to mobile input (user wants to change number or retry).
-      cancelMobileWidget: () => {
-        set({ mobileWidgetOpen: false, mobileWidgetError: '', mobileOtpSent: false, flowStage: 'register' });
-      },
-
-      // ── Step 2: Verify SMS OTP ───────────────────────────────────────────
-      verifyMobileOtp: async (otp) => {
-        const cleaned = normalizePhone(get().currentMobile);
-        if (!cleaned) throw new Error('Mobile number missing. Please start over.');
-
-        try {
-          const { data } = await api.post('/auth/verify-mobile-otp', { mobile: cleaned, otp });
-
-          if (data?.exists) {
-            // Account already registered — tell UI to switch to Sign In
-            throw new Error('Account already exists. Please sign in using Email & Password.');
-          }
-
-          set({
-            flowStage: 'register',
-            mobileWidgetOpen: false,
-            mobileWidgetError: '',
-            emailOtpSent: false,
-            pendingRegistration: null,
-          });
-          return { requiresRegistration: true };
-        } catch (err) {
-          throw new Error(extractApiError(err, 'OTP verification failed. Please try again.'));
-        }
-      },
-
-      // ── Registration form ──────────────────────────────────────────────────
-      submitRegistration: async (payload) => {
-        const cleanedEmail = normalizeEmail(payload.email);
-        if (!payload.firstName.trim()) throw new Error('First name is required.');
-        if (!payload.lastName.trim()) throw new Error('Last name is required.');
-        if (!cleanedEmail) throw new Error('Email is required.');
-        if (!payload.password || payload.password.length < 8) throw new Error('Password must be at least 8 characters.');
-        if (payload.password !== payload.confirmPassword) throw new Error('Password and confirm password do not match.');
 
         set({
-          pendingRegistration: {
-            firstName: payload.firstName.trim(),
-            lastName: payload.lastName.trim(),
-            email: cleanedEmail,
-            dob: payload.dob,
-            password: payload.password,
-          },
-          flowStage: 'email_otp',
+          loading: false,
+          flowStage: "email_otp",
         });
       },
 
-      // ── Email OTP via Supabase ─────────────────────────────────────────────
-      requestEmailOtp: async () => {
-        const state = get();
-        if (!state.pendingRegistration?.email) throw new Error('Please complete registration details first.');
+      signUp: async (data) => {
+        await get().submitRegistration(data);
+      },
 
-        // Supabase sends a real 6-digit OTP to the user's email.
-        // The Route Handler (server-side) uses NEXT_PUBLIC_SUPABASE_ANON_KEY.
-        await callEmailOtp({ action: 'send', email: state.pendingRegistration.email });
-        set({ emailOtpSent: true });
+      // ===============================
+      // Email OTP Verification
+      // ===============================
+
+      requestEmailOtp: async () => {
+        const email = get().pendingRegistration?.email;
+        if (!email) throw new Error("No pending registration found.");
+        const supabase = createClient();
+        const { error } = await supabase.auth.resend({
+          type: "signup",
+          email,
+        });
+        if (error) throw error;
+        set({ flowStage: "email_otp" });
       },
 
       verifyEmailOtp: async (otp) => {
         const state = get();
-        const reg = state.pendingRegistration;
-        if (!reg) throw new Error('Email verification session missing.');
+        const email = state.pendingRegistration?.email;
+        if (!email) {
+          throw new Error("Email verification session expired. Please register again.");
+        }
 
-        // 1. Verify OTP with Supabase (server-side Route Handler).
-        await callEmailOtp({ action: 'verify', email: reg.email, token: otp });
-
-        // 2. Create user in FastAPI/PostgreSQL (bcrypt hashing happens on backend).
-        const { data } = await api.post('/auth/register', {
-          name: `${reg.firstName} ${reg.lastName}`.trim(),
-          email: reg.email,
-          phone: state.currentMobile,
-          password: reg.password,
-        });
-
-        const accessToken = data?.access_token as string;
-        const backendUser = mapBackendUser(data?.user, reg);
-        const sessionExpiresAt = parseJwtExp(accessToken) ?? Date.now() + 24 * 60 * 60 * 1000;
-
-        if (typeof window !== 'undefined') localStorage.setItem('access_token', accessToken);
-
-        set({
-          user: backendUser,
-          isAuthenticated: true,
-          sessionToken: accessToken,
-          sessionExpiresAt,
-          flowStage: 'authenticated',
-          emailOtpSent: false,
-          pendingRegistration: null,
-        });
+        await get().verifyOtp({ email, otp });
       },
 
-      // ── Password reset via Supabase email OTP ─────────────────────────────
-      requestPasswordResetOtp: async (email) => {
-        const cleanedEmail = normalizeEmail(email);
-        if (!cleanedEmail) throw new Error('Email is required.');
+      verifyOtp: async ({ email, otp }) => {
+        const supabase = createClient();
+        set({ loading: true });
 
-        await callPasswordReset({ action: 'send', email: cleanedEmail });
-        set({ passwordResetEmail: cleanedEmail });
+        let { data, error } = await supabase.auth.verifyOtp({
+          email,
+          token: otp.trim(),
+          type: "signup",
+        });
+
+        if (error) {
+          const fallback = await supabase.auth.verifyOtp({
+            email,
+            token: otp.trim(),
+            type: "email",
+          });
+          if (!fallback.error) {
+            data = fallback.data;
+            error = null;
+          }
+        }
+
+        if (error || !data.session) {
+          set({ loading: false });
+          throw error || new Error("Invalid or expired OTP. Please try again.");
+        }
+
+        set({
+          user: data.user,
+          session: data.session,
+          isAuthenticated: true,
+          flowStage: "authenticated",
+          pendingRegistration: null,
+          loading: false,
+        });
+
+        // Initialize user cart persistence in DB
+        useCartStore.getState().initializeUserCart(data.user.id);
+      },
+
+      // ===============================
+      // Password Reset / Recovery
+      // ===============================
+
+      requestPasswordResetOtp: async (email: string) => {
+        const cleanEmail = (email || "").trim().toLowerCase();
+        if (!cleanEmail) {
+          throw new Error("Please enter your email address.");
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+          throw new Error("Please enter a valid email address.");
+        }
+
+        set({ loading: true });
+
+        try {
+          const response = await fetch("/api/auth/password-reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "send", email: cleanEmail }),
+          });
+
+          const resData = await response.json();
+
+          if (!response.ok || resData.error) {
+            throw new Error(resData.error || "No account found for this email address.");
+          }
+        } catch (err: any) {
+          if (err.message && err.message !== "Failed to fetch") {
+            throw err;
+          }
+          const supabase = createClient();
+          const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+          if (error) throw error;
+        } finally {
+          set({ loading: false });
+        }
       },
 
       resetPasswordWithOtp: async ({ email, otp, password, confirmPassword }) => {
-        const cleanedEmail = normalizeEmail(email);
-        if (!password || password.length < 8) throw new Error('Password must be at least 8 characters.');
-        if (password !== confirmPassword) throw new Error('Passwords do not match.');
+        const cleanEmail = (email || "").trim().toLowerCase();
+        const cleanOtp = (otp || "").trim();
 
-        // 1. Verify OTP via Supabase (server-side Route Handler).
-        await callPasswordReset({ action: 'verify', email: cleanedEmail, token: otp });
+        if (!cleanEmail) {
+          throw new Error("Please enter your email address.");
+        }
+        if (!cleanOtp || cleanOtp.length < 6) {
+          throw new Error("Please enter the 6-digit OTP sent to your email.");
+        }
+        if (!password || password.length < 8) {
+          throw new Error("New password must be at least 8 characters long.");
+        }
+        if (password !== confirmPassword) {
+          throw new Error("Passwords do not match.");
+        }
 
-        // 2. Update hashed password in FastAPI/PostgreSQL.
-        await api.post('/auth/reset-password', { email: cleanedEmail, new_password: password });
+        set({ loading: true });
 
-        set({ passwordResetEmail: '' });
+        try {
+          const response = await fetch("/api/auth/password-reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "verify",
+              email: cleanEmail,
+              token: cleanOtp,
+              password,
+            }),
+          });
+
+          const resData = await response.json();
+
+          if (!response.ok || resData.error) {
+            throw new Error(resData.error || "Failed to reset password.");
+          }
+        } catch (err: any) {
+          if (err.message && !err.message.includes("fetch")) {
+            throw err;
+          }
+          const supabase = createClient();
+          let { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+            email: cleanEmail,
+            token: cleanOtp,
+            type: "recovery",
+          });
+
+          if (verifyError) {
+            const fallback = await supabase.auth.verifyOtp({
+              email: cleanEmail,
+              token: cleanOtp,
+              type: "email",
+            });
+            if (!fallback.error) {
+              verifyData = fallback.data;
+              verifyError = null;
+            }
+          }
+
+          if (verifyError || !verifyData) {
+            throw verifyError || new Error("Invalid or expired OTP. Please try again.");
+          }
+
+          const { error: updateError } = await supabase.auth.updateUser({
+            password,
+          });
+
+          if (updateError) {
+            throw updateError;
+          }
+        } finally {
+          set({ loading: false });
+        }
       },
 
-      // ── Login (FastAPI — bcrypt verify + JWT) ─────────────────────────────
+      // ===============================
+      // Login
+      // ===============================
+
       login: async (email, password) => {
-        set({ isLoading: true });
+        const supabase = createClient();
+
+        set({ loading: true });
+
         try {
-          const { data } = await api.post('/auth/login', { email: normalizeEmail(email), password });
+          const normalizedEmail = email.trim().toLowerCase();
 
-          const accessToken = data?.access_token as string;
-          const backendUser = mapBackendUser(data?.user);
-          const sessionExpiresAt = parseJwtExp(accessToken) ?? Date.now() + 24 * 60 * 60 * 1000;
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password,
+          });
 
-          if (typeof window !== 'undefined') localStorage.setItem('access_token', accessToken);
+          if (error) {
+            throw error;
+          }
+
+          if (!data.user) {
+            throw new Error('User not found');
+          }
+
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', data.user.id)
+            .single();
+
+          if (profileError) {
+            throw profileError;
+          }
+
+          const resolvedRole = profile?.role?.toLowerCase() || 'customer';
 
           set({
-            user: backendUser,
+            user: data.user,
+            session: data.session,
             isAuthenticated: true,
-            sessionToken: accessToken,
-            sessionExpiresAt,
+            role: resolvedRole,
             flowStage: 'authenticated',
+            loading: false,
           });
-        } catch (err) {
-          throw new Error(extractApiError(err, 'Invalid email or password.'));
-        } finally {
-          set({ isLoading: false });
+
+          // Sync & Restore Database Cart
+          useCartStore.getState().initializeUserCart(data.user.id);
+
+          return { role: resolvedRole };
+        } catch (error) {
+          set({ loading: false });
+          throw error;
         }
       },
 
-      // ── Legacy single-call register (used by some pages) ──────────────────
-      register: async (name, email, _phone, password) => {
-        set({ isLoading: true });
-        try {
-          const [firstName = '', ...rest] = name.trim().split(' ');
-          const lastName = rest.join(' ');
-          await get().submitRegistration({ firstName, lastName, email, dob: '', password, confirmPassword: password });
-          await get().requestEmailOtp();
-          return {};
-        } finally {
-          set({ isLoading: false });
-        }
-      },
+      // ===============================
+      // Logout
+      // ===============================
 
       logout: async () => {
-        try { await api.post('/auth/logout'); } catch { /* local logout must still proceed */ }
-        if (typeof window !== 'undefined') localStorage.removeItem('access_token');
+        const supabase = createClient();
+
+        await supabase.auth.signOut();
+
         set({
           user: null,
+          session: null,
           isAuthenticated: false,
-          sessionToken: null,
-          sessionExpiresAt: null,
-          flowStage: 'register',
-          mobileOtpSent: false,
-          emailOtpSent: false,
-          mobileWidgetOpen: false,
-          mobileWidgetError: '',
-          passwordResetEmail: '',
+          role: "customer",
+          flowStage: "register",
           pendingRegistration: null,
         });
+
+        // Clear local cart state upon logout
+        useCartStore.getState().resetUserCart();
       },
 
-      refreshUser: async () => {
-        set((state) => {
-          if (!state.sessionToken || !state.sessionExpiresAt || state.sessionExpiresAt < Date.now()) {
-            if (typeof window !== 'undefined') localStorage.removeItem('access_token');
-            return { user: null, isAuthenticated: false, sessionToken: null, sessionExpiresAt: null, flowStage: 'register' };
+      // ===============================
+      // Restore Session
+      // ===============================
+
+      getSession: async () => {
+        const supabase = createClient();
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        let resolvedRole = 'customer';
+        if (session?.user) {
+          const userEmail = (session.user.email || '').toLowerCase().trim();
+          if (userEmail === 'maladoddipavankalyan@gmail.com') {
+            resolvedRole = 'super_admin';
+          } else {
+            try {
+              const { data: profiles } = await (supabase as any)
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id);
+              const pRole = profiles && profiles.length > 0 ? profiles[0]?.role : '';
+              resolvedRole = (pRole || session.user.app_metadata?.role || session.user.user_metadata?.role || 'customer').toLowerCase();
+            } catch (pErr) {
+              resolvedRole = (session.user.app_metadata?.role || session.user.user_metadata?.role || 'customer').toLowerCase();
+            }
           }
-          return { isAuthenticated: !!state.user };
+
+          // Restore user database cart if session is active
+          useCartStore.getState().initializeUserCart(session.user.id);
+        }
+
+        set({
+          session,
+          user: session?.user ?? null,
+          isAuthenticated: !!session,
+          role: resolvedRole,
+          flowStage: session ? "authenticated" : "register",
         });
       },
 
-      setUser: (user) => set((state) => ({
-        user,
-        isAuthenticated: !!user,
-        flowStage: user ? 'authenticated' : 'register',
-        sessionToken: state.sessionToken,
-      })),
+      // ===============================
+      // Profile Update
+      // ===============================
 
-      resetFlow: () => set({
-        flowStage: 'register',
-        currentMobile: '',
-        mobileOtpSent: false,
-        emailOtpSent: false,
-        mobileWidgetOpen: false,
-        mobileWidgetError: '',
-        pendingRegistration: null,
-      }),    }),
+      updateProfile: async (data) => {
+        const supabase = createClient();
+        const currentUser = get().user;
+        if (!currentUser) throw new Error('Not authenticated');
+
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            name: `${data.firstName} ${data.lastName}`.trim(),
+            phone: data.phone,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', currentUser.id);
+
+        if (error) throw error;
+      },
+
+      resetFlow: () => set({ flowStage: 'register', pendingRegistration: null }),
+    }),
     {
-      name: 'threadx-auth',
-      partialize: (state) => ({
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        sessionToken: state.sessionToken,
-        sessionExpiresAt: state.sessionExpiresAt,
-      }),
+      name: "auth-storage",
     }
   )
 );

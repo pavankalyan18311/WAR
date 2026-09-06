@@ -44,22 +44,31 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Refresh session — do NOT remove this call
-  const { data: { user } } = await supabase.auth.getUser();
-
   // Pass pathname to layout for admin route detection
-  supabaseResponse.headers.set('x-pathname', request.nextUrl.pathname);
-
-  // Protect admin routes — redirect to admin login if not authenticated as admin
   const pathname = request.nextUrl.pathname;
-  if (
-    pathname.startsWith('/admin') &&
-    pathname !== '/admin/login' &&
-    !user
-  ) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = '/admin/login';
-    return NextResponse.redirect(loginUrl);
+  supabaseResponse.headers.set('x-pathname', pathname);
+
+  try {
+    // Refresh session with 2s safety timeout so auth network delay never hangs requests
+    const authPromise = supabase.auth.getUser();
+    const timeoutPromise = new Promise<{ data: { user: null } }>((resolve) =>
+      setTimeout(() => resolve({ data: { user: null } }), 2000)
+    );
+
+    const { data: { user } } = await Promise.race([authPromise, timeoutPromise]);
+
+    // Protect admin routes — redirect to admin login if not authenticated as admin
+    if (
+      pathname.startsWith('/admin') &&
+      pathname !== '/admin/login' &&
+      !user
+    ) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = '/admin/login';
+      return NextResponse.redirect(loginUrl);
+    }
+  } catch (err) {
+    console.warn('Middleware auth notice:', err);
   }
 
   return supabaseResponse;

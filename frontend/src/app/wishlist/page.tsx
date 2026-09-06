@@ -3,16 +3,24 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Heart, ShoppingBag, Trash2, ArrowRight, Star } from 'lucide-react';
+import { Heart, ShoppingBag, Trash2, ArrowRight, Star, User, Package, LogOut } from 'lucide-react';
 import { useWishlistStore } from '@/store/wishlistStore';
 import { useCartStore } from '@/store/cartStore';
+import { useAuthStore } from '@/store/authStore';
 import { formatPrice } from '@/lib/utils';
 import type { WishlistItem } from '@/types';
+
+const NAV_LINKS = [
+  { href: '/account/profile', label: 'Profile & Addresses', icon: User },
+  { href: '/account/orders', label: 'My Orders', icon: Package },
+  { href: '/wishlist', label: 'Wishlist', icon: Heart, active: true },
+];
 
 export default function WishlistPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const { logout } = useAuthStore();
   const items = useWishlistStore((s) => s.items);
   const removeItem = useWishlistStore((s) => s.removeItem);
   const addCartItem = useCartStore((s) => s.addItem);
@@ -37,10 +45,11 @@ export default function WishlistPage() {
     <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
       {/* Header */}
       <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8">
+        <div className="max-w-5xl mx-auto px-5 sm:px-8 py-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black" style={{ color: 'var(--fg)' }}>
+              <p className="text-xs font-bold tracking-[0.3em] uppercase mb-1" style={{ color: 'var(--accent)' }}>Dashboard</p>
+              <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>
                 My Wishlist
               </h1>
               <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
@@ -55,7 +64,54 @@ export default function WishlistPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 py-10">
+      {/* Mobile Navigation Bar */}
+      <div className="md:hidden border-b overflow-x-auto no-scrollbar" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+        <div className="flex px-5 py-2.5 gap-2 min-w-max">
+          {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
+            <Link key={href} href={href}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all"
+              style={{
+                background: active ? 'var(--primary)' : 'var(--bg-elevated)',
+                color: active ? 'var(--primary-fg)' : 'var(--fg-muted)',
+                border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
+              }}>
+              <Icon size={14} />
+              {label}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10">
+        <div className="flex gap-8">
+          {/* Desktop Sidebar Navigation */}
+          <aside className="hidden md:block w-48 flex-shrink-0">
+            <nav className="space-y-1">
+              {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
+                <Link key={href} href={href}
+                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                  style={{
+                    background: active ? 'var(--bg-elevated)' : 'transparent',
+                    color: active ? 'var(--fg)' : 'var(--fg-muted)',
+                    border: active ? '1px solid var(--border)' : '1px solid transparent',
+                  }}>
+                  <Icon size={15} />
+                  {label}
+                </Link>
+              ))}
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-70"
+                onClick={async () => { await logout(); }}
+                style={{ color: 'var(--danger)' }}
+              >
+                <LogOut size={15} />
+                Sign Out
+              </button>
+            </nav>
+          </aside>
+
+          {/* Main Wishlist Content */}
+          <div className="flex-1 min-w-0">
         {items.length === 0 ? (
           /* ── Empty state ── */
           <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -200,6 +256,8 @@ export default function WishlistPage() {
             </Link>
           </div>
         )}
+          </div>
+        </div>
       </div>
     </main>
   );

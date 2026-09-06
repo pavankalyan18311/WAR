@@ -3,7 +3,7 @@ import ProductsPage from './ProductsPage';
 import { ProductGridSkeleton } from '@/components/ui/Skeleton';
 
 export const metadata = {
-  title: 'Shop T-Shirts — ThreadX',
+  title: 'Shop T-Shirts — WAR',
   description: 'Browse our full range of premium men\'s t-shirts. Filter by category, size, colour, and more.',
 };
 

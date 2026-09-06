@@ -10,7 +10,6 @@ export default function RegisterPage() {
   const router = useRouter();
   const {
     flowStage,
-    mobileWidgetError,
     pendingRegistration,
     submitRegistration,
     requestEmailOtp,
@@ -20,9 +19,7 @@ export default function RegisterPage() {
   } = useAuthStore();
 
   // Surface widget-level errors (account exists, cancelled, etc.)
-  useEffect(() => {
-    if (mobileWidgetError) setError(mobileWidgetError);
-  }, [mobileWidgetError]);
+
 
   const [emailOtp, setEmailOtp] = useState('');
   const [busy, setBusy] = useState(false);
@@ -45,10 +42,7 @@ export default function RegisterPage() {
     if (isAuthenticated) router.push('/');
   }, [isAuthenticated, router]);
 
-  const stage = useMemo(() => {
-    if (flowStage === 'email_otp') return 'email_otp';
-    return 'register';
-  }, [flowStage]);
+  const stage = useMemo(() => flowStage, [flowStage]);
 
   const wrap = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -62,10 +56,16 @@ export default function RegisterPage() {
     }
   };
 
-  const handleSubmitRegistration = () => wrap(async () => {
-    await submitRegistration(form);
-    await requestEmailOtp();
-  });
+  const handleSubmitRegistration = () =>
+    wrap(async () => {
+      if (!form.firstName.trim()) throw new Error('First name is required.');
+      if (!form.lastName.trim()) throw new Error('Last name is required.');
+      if (!form.email.trim() || !form.email.includes('@')) throw new Error('Valid email address is required.');
+      if (form.password.length < 8) throw new Error('Password must be at least 8 characters long.');
+      if (form.password !== form.confirmPassword) throw new Error('Passwords do not match.');
+      await submitRegistration(form);
+      router.push("/auth/verify-email-otp");
+    });
 
   const handleVerifyEmailOtp = () => wrap(async () => {
     await verifyEmailOtp(emailOtp);
@@ -85,7 +85,7 @@ export default function RegisterPage() {
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/" className="text-3xl font-black" style={{ color: 'var(--fg)' }}>THREADX</Link>
+          <Link href="/" className="text-3xl font-black" style={{ color: 'var(--fg)' }}>WAR</Link>
           <h1 className="text-xl font-bold mt-4">Create your account</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Verify your email with OTP to create an account, then login with email and password</p>
         </div>
