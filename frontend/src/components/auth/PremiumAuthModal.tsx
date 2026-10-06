@@ -125,25 +125,28 @@ function CreateAccountPanel({ onExistingAccount }: { onExistingAccount: (msg: st
 
       {/* Step 3 — Registration form */}
       {flowStage === 'register' && (
-        <div className="space-y-3">
+        <form
+          className="space-y-3"
+          onSubmit={(e) => { e.preventDefault(); wrap(async () => { await submitRegistration(form); await requestEmailOtp(); }); }}
+          autoComplete="on"
+        >
           <div className="grid grid-cols-2 gap-2.5">
-            <input type="text" value={form.firstName} onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="First Name" className={field} style={fieldStyle} />
-            <input type="text" value={form.lastName} onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Last Name" className={field} style={fieldStyle} />
+            <input type="text" value={form.firstName} onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="First Name" className={field} style={fieldStyle} autoComplete="given-name" />
+            <input type="text" value={form.lastName} onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Last Name" className={field} style={fieldStyle} autoComplete="family-name" />
           </div>
-          <input type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} placeholder="Email Address" className={field} style={fieldStyle} />
-          <input type="date" value={form.dob} onChange={(e) => setForm((p) => ({ ...p, dob: e.target.value }))} className={field} style={{ ...fieldStyle, colorScheme: 'dark' }} />
-          <input type="password" value={form.password} onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))} placeholder="Password" className={field} style={fieldStyle} />
-          <input type="password" value={form.confirmPassword} onChange={(e) => setForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Confirm Password" className={field} style={fieldStyle} />
+          <input type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} placeholder="Email Address" className={field} style={fieldStyle} autoComplete="email" />
+          <input type="date" value={form.dob} onChange={(e) => setForm((p) => ({ ...p, dob: e.target.value }))} className={field} style={{ ...fieldStyle, colorScheme: 'dark' }} autoComplete="bday" />
+          <input type="password" value={form.password} onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))} placeholder="Password" className={field} style={fieldStyle} autoComplete="new-password" />
+          <input type="password" value={form.confirmPassword} onChange={(e) => setForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Confirm Password" className={field} style={fieldStyle} autoComplete="new-password" />
           <button
-            type="button"
-            onClick={() => wrap(async () => { await submitRegistration(form); await requestEmailOtp(); })}
+            type="submit"
             disabled={busy}
             className={btn(busy)}
             style={btnStyle}
           >
             {busy ? 'Processing…' : <>Continue to Email Verification <ArrowRight size={14} /></>}
           </button>
-        </div>
+        </form>
       )}
 
       {/* Step 4 — Email OTP */}
@@ -202,7 +205,7 @@ function SignInPanel({ prefillMessage }: { prefillMessage?: string }) {
   };
 
   return (
-    <div className="space-y-3">
+    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); handleLogin(); }} autoComplete="on">
       {error && (
         <div className="px-3.5 py-2.5 rounded-xl text-xs" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}>
           {error}
@@ -216,6 +219,7 @@ function SignInPanel({ prefillMessage }: { prefillMessage?: string }) {
         placeholder="Email address"
         className={field}
         style={fieldStyle}
+        autoComplete="email"
       />
 
       <div className="relative">
@@ -226,7 +230,7 @@ function SignInPanel({ prefillMessage }: { prefillMessage?: string }) {
           placeholder="Password"
           className={`${field} pr-12`}
           style={fieldStyle}
-          onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
+          autoComplete="current-password"
         />
         <button
           type="button"
@@ -246,15 +250,14 @@ function SignInPanel({ prefillMessage }: { prefillMessage?: string }) {
       </div>
 
       <button
-        type="button"
-        onClick={handleLogin}
+        type="submit"
         disabled={busy || !email || !password}
         className={btn(busy || !email || !password)}
         style={btnStyle}
       >
         {busy ? 'Signing in…' : <>Sign In <ArrowRight size={14} /></>}
       </button>
-    </div>
+    </form>
   );
 }
 

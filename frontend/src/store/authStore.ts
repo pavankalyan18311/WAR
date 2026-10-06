@@ -366,9 +366,17 @@ export const useAuthStore = create<AuthStore>()(
       getSession: async () => {
         const supabase = createClient();
 
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        let session = null;
+        try {
+          const { data, error } = await supabase.auth.getSession();
+          if (error) throw error;
+          session = data.session;
+        } catch {
+          // Stale or invalid refresh token — wipe persisted auth state cleanly
+          try { await supabase.auth.signOut(); } catch {}
+          set({ user: null, session: null, isAuthenticated: false, role: 'customer', flowStage: 'register' });
+          return;
+        }
 
         let resolvedRole = 'customer';
         if (session?.user) {
