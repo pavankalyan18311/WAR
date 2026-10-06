@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { getPublicStorageUrl } from '@/lib/supabase/queries';
 import {
   Plus,
   Search,
@@ -14,6 +15,9 @@ import {
   ChevronDown,
   Package,
   AlertTriangle,
+  Layers,
+  X,
+  Check,
 } from 'lucide-react';
 
 interface AdminProduct {
@@ -27,6 +31,7 @@ interface AdminProduct {
   sales: number;
   image: string;
   slug?: string;
+  rawVariants?: any[];
 }
 
 const MOCK_PRODUCTS: AdminProduct[] = [
@@ -54,45 +59,105 @@ export default function AdminProductsPage() {
   const [products, setProducts] = useState<AdminProduct[]>(MOCK_PRODUCTS);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchSupabaseProducts = async () => {
-      try {
-        const { data, error } = await (supabase as any)
-          .from('products')
-          .select('*, variants:product_variants(*), product_images(*)');
+  // Quick Stock Modal State
+  const [stockModalProduct, setStockModalProduct] = useState<AdminProduct | null>(null);
+  const [quickStockValue, setQuickStockValue] = useState<number>(0);
+  const [updatingStock, setUpdatingStock] = useState(false);
 
-        if (data && data.length > 0) {
-          const mapped: AdminProduct[] = data.map((p: any) => {
-            const totalStock = p.variants?.reduce((sum: number, v: any) => sum + (v.stock_quantity || 0), 0) ?? 45;
-            let primaryImg = 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=60&h=60&fit=crop';
+  const fetchSupabaseProducts = async () => {
+    try {
+      let { data, error } = await (supabase as any)
+        .from('products')
+        .select(`
+          *,
+          product_media(*),
+          product_categories(categories(*)),
+          product_variants(*, inventory(*))
+        `);
 
-            if (Array.isArray(p.product_images) && p.product_images.length > 0) {
-              primaryImg = p.product_images[0].url;
-            } else if (Array.isArray(p.images) && p.images.length > 0) {
-              primaryImg = typeof p.images[0] === 'string' ? p.images[0] : p.images[0]?.url || primaryImg;
-            }
-
-            return {
-              id: p.id || p.product_id || p.slug,
-              name: p.name,
-              category: p.category?.name || 'General',
-              price: p.price,
-              discount_price: p.discount_price || undefined,
-              stock: totalStock,
-              status: p.is_active ? 'Active' : 'Draft',
-              sales: 12 + (p.product_id ? p.product_id.charCodeAt(0) % 50 : 0),
-              image: typeof primaryImg === 'string' ? primaryImg : 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=60&h=60&fit=crop',
-              slug: p.slug,
-            };
-          });
-          setProducts(mapped);
-        }
-      } catch (err) {
-        console.error('Failed to fetch products from Supabase', err);
-      } finally {
-        setLoading(false);
+      if (error) {
+        console.warn('Primary products query notice:', error);
+        // Fallback simple query
+        const fallbackRes = await (supabase as any).from('products').select('*');
+        data = fallbackRes.data;
       }
-    };
+
+      if (data && data.length > 0) {
+        const mapped: AdminProduct[] = data.map((p: any) => {
+          const variants = p.product_variants || p.variants || [];
+          let minPrice = p.price || 0;
+          let discountPrice = p.discount_price || undefined;
+          let totalStock = 0;
+
+          if (variants.length > 0) {
+            const prices = variants.map((v: any) => parseFloat(v.price || 0)).filter((pr: number) => pr > 0);
+            if (prices.length > 0) minPrice = Math.min(...prices);
+
+            const comparePrices = variants.map((v: any) => parseFloat(v.compare_at_price || 0)).filter((pr: number) => pr > 0);
+            if (comparePrices.length > 0) discountPrice = minPrice;
+
+            totalStock = variants.reduce((sum: number, v: any) => {
+              const invQty = v.inventory?.quantity ?? v.inventory?.[0]?.quantity ?? v.stock_quantity ?? 0;
+              return sum + invQty;
+            }, 0);
+          } else {
+            totalStock = p.stock || 0;
+          }
+
+          let primaryImg = 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=60&h=60&fit=crop';
+          if (Array.isArray(p.product_media) && p.product_media.length > 0) {
+            primaryImg = p.product_media[0].storage_path || p.product_media[0].url || primaryImg;
+          } else if (Array.isArray(p.product_images) && p.product_images.length > 0) {
+            primaryImg = p.product_images[0].url || primaryImg;
+          } else if (Array.isArray(p.images) && p.images.length > 0) {
+            primaryImg = typeof p.images[0] === 'string' ? p.images[0] : p.images[0]?.url || primaryImg;
+          } else if (p.image_url) {
+            primaryImg = p.image_url;
+          }
+
+          primaryImg = getPublicStorageUrl(primaryImg, p.id || p.slug);
+
+          let categoryName = 'General';
+          if (Array.isArray(p.product_categories) && p.product_categories.length > 0) {
+            categoryName = p.product_categories[0]?.categories?.name || categoryName;
+          } else if (p.category?.name) {
+            categoryName = p.category.name;
+          }
+
+          let statusVal: 'Active' | 'Draft' | 'Archived' = 'Active';
+          if (p.status) {
+            const lower = String(p.status).toLowerCase();
+            if (lower === 'draft') statusVal = 'Draft';
+            else if (lower === 'archived') statusVal = 'Archived';
+            else statusVal = 'Active';
+          } else if (p.is_active !== undefined) {
+            statusVal = p.is_active ? 'Active' : 'Draft';
+          }
+
+          return {
+            id: p.id || p.product_id || p.slug,
+            name: p.name,
+            category: categoryName,
+            price: minPrice || 999,
+            discount_price: discountPrice,
+            stock: totalStock,
+            status: statusVal,
+            sales: 12 + (p.id ? p.id.charCodeAt(0) % 50 : 0),
+            image: primaryImg,
+            slug: p.slug,
+            rawVariants: variants,
+          };
+        });
+        setProducts(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to fetch products from Supabase', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchSupabaseProducts();
   }, [supabase]);
 
@@ -110,9 +175,67 @@ export default function AdminProductsPage() {
       return a.name.localeCompare(b.name);
     });
 
-  const handleDelete = (id: string) => {
+  const toggleStatus = async (p: AdminProduct) => {
+    const nextStatusMap: Record<string, 'Active' | 'Draft' | 'Archived'> = {
+      Active: 'Draft',
+      Draft: 'Active',
+      Archived: 'Draft',
+    };
+    const nextStatus = nextStatusMap[p.status];
+
+    setProducts((prev) => prev.map((item) => item.id === p.id ? { ...item, status: nextStatus } : item));
+
+    try {
+      await (supabase as any)
+        .from('products')
+        .update({ status: nextStatus.toLowerCase() })
+        .eq('id', p.id);
+    } catch (e) {
+      console.error('Failed updating product status', e);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
     if (confirm('Archive this product? It will no longer appear on the storefront.')) {
       setProducts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'Archived' as const } : p));
+      try {
+        await (supabase as any)
+          .from('products')
+          .update({ status: 'archived' })
+          .eq('id', id);
+      } catch (e) {
+        console.error('Failed archiving product', e);
+      }
+    }
+  };
+
+  const handleSaveQuickStock = async () => {
+    if (!stockModalProduct) return;
+    setUpdatingStock(true);
+
+    try {
+      const p = stockModalProduct;
+      const variants = p.rawVariants || [];
+
+      if (variants.length > 0) {
+        for (const v of variants) {
+          if (v.id) {
+            await (supabase as any)
+              .from('inventory')
+              .upsert(
+                [{ variant_id: v.id, quantity: quickStockValue }],
+                { onConflict: 'variant_id' }
+              );
+          }
+        }
+      }
+
+      setProducts((prev) => prev.map((item) => item.id === p.id ? { ...item, stock: quickStockValue * (variants.length || 1) } : item));
+      setStockModalProduct(null);
+    } catch (err) {
+      console.error('Failed to update quick stock:', err);
+    } finally {
+      setUpdatingStock(false);
     }
   };
 
@@ -201,51 +324,49 @@ export default function AdminProductsPage() {
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2.5 rounded-xl text-xs font-medium outline-none cursor-pointer"
+            className="px-3 py-2.5 rounded-xl text-xs font-medium outline-none appearance-none pr-8 cursor-pointer"
             style={{
               background: 'var(--bg-subtle)',
               border: '1px solid var(--border)',
               color: 'var(--fg)',
             }}
           >
-            <option value="name">Sort: Name</option>
-            <option value="price">Sort: Price</option>
-            <option value="stock">Sort: Stock</option>
-            <option value="sales">Sort: Sales</option>
+            <option value="name">Sort by Name</option>
+            <option value="price">Sort by Price (High to Low)</option>
+            <option value="stock">Sort by Stock</option>
+            <option value="sales">Sort by Best Sellers</option>
           </select>
           <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--fg-muted)' }} />
         </div>
       </div>
 
       {/* Table */}
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
-      >
-        <table className="w-full text-sm">
+      <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+        <table className="w-full text-left text-sm border-collapse">
           <thead>
-            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-subtle)' }}>
-              <th className="text-left px-5 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Product</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Category</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Price</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden md:table-cell" style={{ color: 'var(--fg-muted)' }}>Stock</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>Sales</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Status</th>
-              <th className="px-4 py-3" />
+            <tr style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border)' }}>
+              <th className="px-5 py-3.5 font-semibold text-xs uppercase tracking-wider" style={{ color: 'var(--fg-muted)' }}>Product</th>
+              <th className="px-4 py-3.5 font-semibold text-xs uppercase tracking-wider hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Category</th>
+              <th className="px-4 py-3.5 font-semibold text-xs uppercase tracking-wider" style={{ color: 'var(--fg-muted)' }}>Price</th>
+              <th className="px-4 py-3.5 font-semibold text-xs uppercase tracking-wider hidden md:table-cell" style={{ color: 'var(--fg-muted)' }}>Stock</th>
+              <th className="px-4 py-3.5 font-semibold text-xs uppercase tracking-wider hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>Sales</th>
+              <th className="px-4 py-3.5 font-semibold text-xs uppercase tracking-wider" style={{ color: 'var(--fg-muted)' }}>Status</th>
+              <th className="px-4 py-3.5 font-semibold text-xs uppercase tracking-wider text-right" style={{ color: 'var(--fg-muted)' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
-                  <Package size={32} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No products found</p>
+                <td colSpan={7} className="px-5 py-12 text-center" style={{ color: 'var(--fg-muted)' }}>
+                  <Package size={32} className="mx-auto mb-2 opacity-50" />
+                  No products found
                 </td>
               </tr>
             ) : (
               filtered.map((p, idx) => {
                 const statusStyle = STATUS_STYLES[p.status] || STATUS_STYLES.Active;
                 const isLowStock = p.stock > 0 && p.stock <= 20;
+
                 return (
                   <tr
                     key={p.id ? `${p.id}-${idx}` : `prod-${idx}`}
@@ -287,24 +408,31 @@ export default function AdminProductsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3.5 hidden md:table-cell">
-                      <span
-                        className="flex items-center gap-1 text-sm"
+                      <button
+                        onClick={() => {
+                          setStockModalProduct(p);
+                          setQuickStockValue(Math.max(1, Math.floor(p.stock / Math.max(1, p.rawVariants?.length || 1))));
+                        }}
+                        className="flex items-center gap-1.5 text-sm hover:underline cursor-pointer"
                         style={{ color: p.stock === 0 ? '#ef4444' : isLowStock ? '#eab308' : 'var(--fg)' }}
+                        title="Click to adjust stock"
                       >
                         {(p.stock === 0 || isLowStock) && <AlertTriangle size={12} />}
-                        {p.stock === 0 ? 'Out of stock' : p.stock}
-                      </span>
+                        {p.stock === 0 ? 'Out of stock' : `${p.stock} units`}
+                      </button>
                     </td>
                     <td className="px-4 py-3.5 hidden lg:table-cell">
                       <span className="font-medium">{p.sales}</span>
                     </td>
                     <td className="px-4 py-3.5">
-                      <span
-                        className="inline-flex text-xs px-2.5 py-1 rounded-full font-medium"
+                      <button
+                        onClick={() => toggleStatus(p)}
+                        className="inline-flex text-xs px-2.5 py-1 rounded-full font-medium cursor-pointer transition-transform active:scale-95"
                         style={{ background: statusStyle.bg, color: statusStyle.color }}
+                        title="Click to toggle status"
                       >
                         {p.status}
-                      </span>
+                      </button>
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="relative flex items-center gap-1 justify-end">
@@ -360,6 +488,62 @@ export default function AdminProductsPage() {
           </div>
         </div>
       </div>
+
+      {/* Quick Stock Adjustment Modal */}
+      {stockModalProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-lg">Quick Stock Adjustment</h3>
+              <button
+                onClick={() => setStockModalProduct(null)}
+                className="p-1 rounded-lg hover:bg-zinc-800 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs" style={{ color: 'var(--fg-muted)' }}>
+              Adjust variant inventory quantity for <span className="font-semibold text-white">{stockModalProduct.name}</span>.
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fg-muted)' }}>
+                Stock Per Variant
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={quickStockValue}
+                onChange={(e) => setQuickStockValue(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full px-4 py-2.5 rounded-xl text-sm font-mono outline-none"
+                style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)' }}
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setStockModalProduct(null)}
+                className="px-4 py-2 rounded-xl text-xs font-medium"
+                style={{ background: 'var(--bg-subtle)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveQuickStock}
+                disabled={updatingStock}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold"
+                style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
+              >
+                {updatingStock ? 'Saving...' : 'Save Stock'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

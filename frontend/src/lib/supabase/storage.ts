@@ -73,7 +73,8 @@ export async function syncProductImagesToDatabase(
     await (supabase as any)
       .from('product_images')
       .delete()
-      .eq('product_id', productId);
+      .eq('product_id', productId)
+      .catch(() => {});
 
     const rows = imageUrls.map((url, index) => ({
       product_id: productId,
@@ -88,22 +89,73 @@ export async function syncProductImagesToDatabase(
       .insert(rows);
 
     if (error) {
-      console.error('Error inserting into product_images table:', error);
-      if (error.code === '42501') {
-        alert(
-          'Supabase Row-Level Security (RLS) Notice:\n\n' +
-          'Your table "public.product_images" blocked the image insert.\n\n' +
-          'Please execute this query in your Supabase SQL Editor:\n\n' +
-          'ALTER TABLE public.product_images DISABLE ROW LEVEL SECURITY;\n' +
-          'ALTER TABLE public.product_variants DISABLE ROW LEVEL SECURITY;'
-        );
+      if (error.code !== 'PGRST205' && error.code !== '42P01') {
+        console.warn('product_images insert notice:', error.message);
       }
       return false;
     }
 
     return true;
   } catch (err) {
-    console.error('Failed to sync product images to database:', err);
     return false;
   }
 }
+
+/**
+ * Inserts rows into product_media or product_images table linked to product_id
+ */
+export async function syncProductMediaToDatabase(
+  productId: string,
+  imageUrls: string[],
+  altText: string
+): Promise<boolean> {
+  try {
+    const supabase = createClient();
+    if (!imageUrls || imageUrls.length === 0) return true;
+
+    const primaryUrl = imageUrls[0];
+
+    // Fail-safe: Update primary image_url on the product row itself
+    if (primaryUrl) {
+      await (supabase as any)
+        .from('products')
+        .update({ image_url: primaryUrl })
+        .eq('id', productId)
+        .catch(() => {});
+    }
+
+    // Clean old media records
+    await (supabase as any)
+      .from('product_media')
+      .delete()
+      .eq('product_id', productId)
+      .catch(() => {});
+
+    const rows = imageUrls.map((url, index) => ({
+      product_id: productId,
+      storage_path: url,
+      media_type: 'image',
+      alt_text: altText || 'Product image',
+      sort_order: index,
+    }));
+
+    const { error } = await (supabase as any)
+      .from('product_media')
+      .insert(rows);
+
+    if (error) {
+      if (error.code !== 'PGRST205' && error.code !== '42P01') {
+        console.warn('product_media insert notice:', error.message);
+      }
+      // Try fallback to product_images only if table exists
+      await syncProductImagesToDatabase(productId, imageUrls, altText);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('Failed to sync product_media to database:', err);
+    return false;
+  }
+}
+

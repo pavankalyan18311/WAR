@@ -515,6 +515,87 @@ export interface Database {
           updated_at?: string;
         };
       };
+
+      coupons: {
+        Row: {
+          id: string;
+          code: string;
+          description: string | null;
+          coupon_type: 'general' | 'welcome' | 'welcome_back' | 'one_time';
+          discount_type: 'percentage' | 'flat' | 'free_shipping';
+          discount_value: number;
+          min_order_amount: number;
+          max_discount_amount: number | null;
+          max_uses: number | null;
+          uses_count: number;
+          max_uses_per_user: number | null;
+          first_order_only: boolean;
+          inactive_days_threshold: number | null;
+          is_active: boolean;
+          valid_from: string | null;
+          valid_to: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          code: string;
+          description?: string | null;
+          coupon_type?: 'general' | 'welcome' | 'welcome_back' | 'one_time';
+          discount_type: 'percentage' | 'flat' | 'free_shipping';
+          discount_value: number;
+          min_order_amount?: number;
+          max_discount_amount?: number | null;
+          max_uses?: number | null;
+          uses_count?: number;
+          max_uses_per_user?: number | null;
+          first_order_only?: boolean;
+          inactive_days_threshold?: number | null;
+          is_active?: boolean;
+          valid_from?: string | null;
+          valid_to?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          code?: string;
+          description?: string | null;
+          coupon_type?: 'general' | 'welcome' | 'welcome_back' | 'one_time';
+          discount_type?: 'percentage' | 'flat' | 'free_shipping';
+          discount_value?: number;
+          min_order_amount?: number;
+          max_discount_amount?: number | null;
+          max_uses?: number | null;
+          uses_count?: number;
+          max_uses_per_user?: number | null;
+          first_order_only?: boolean;
+          inactive_days_threshold?: number | null;
+          is_active?: boolean;
+          valid_from?: string | null;
+          valid_to?: string | null;
+          updated_at?: string;
+        };
+      };
+
+      coupon_usages: {
+        Row: {
+          id: string;
+          coupon_id: string;
+          user_id: string;
+          order_id: string | null;
+          used_at: string;
+        };
+        Insert: {
+          id?: string;
+          coupon_id: string;
+          user_id: string;
+          order_id?: string | null;
+          used_at?: string;
+        };
+        Update: {
+          order_id?: string | null;
+        };
+      };
     };
   };
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { MapPin, CreditCard, CheckCircle, ArrowLeft, ArrowRight, ShieldCheck, Lock, AlertCircle, Banknote, Plus, Truck, Copy, Check, Package } from 'lucide-react';
@@ -41,6 +42,7 @@ interface SavedAddress {
 
 export default function CheckoutPage() {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
   const { items, getSummary, couponCode, clearCart } = useCartStore();
   const { user } = useAuthStore();
   const [mounted, setMounted] = useState(false);
@@ -149,6 +151,12 @@ export default function CheckoutPage() {
     };
     fetchSupabaseAddresses();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (mounted && !user) {
+      router.push('/auth/login?redirect=/checkout');
+    }
+  }, [mounted, user, router]);
 
   useEffect(() => {
     const selected = savedAddresses.find((a) => a.id === selectedSavedAddressId);
@@ -293,12 +301,13 @@ export default function CheckoutPage() {
   const deliveryAddress = useMemo(() => ({
     full_name: `${address.firstName} ${address.lastName}`.trim(),
     phone: address.phone,
+    email: address.email || user?.email || '',
     address_line_1: address.address,
     city: address.city,
     state: address.state,
     pincode: address.pincode,
     country: 'India',
-  }), [address]);
+  }), [address, user]);
 
   if (!mounted) {
     return (
@@ -322,20 +331,29 @@ export default function CheckoutPage() {
         throw new Error('Your cart is empty. Please add items before checking out.');
       }
 
-      // 1. Inventory Stock Check via product_variants status
+      // 1. Inventory Stock Check — variant status + actual quantity
       for (const item of items) {
         const variantId = item.variant_id || item.variant?.variant_id || item.variant?.id;
         if (variantId) {
           const { data: varData } = await (supabase as any)
             .from('product_variants')
-            .select('status')
+            .select('status, inventory(quantity, reserved_quantity)')
             .eq('id', variantId)
             .maybeSingle();
 
-          if (varData && (varData.status === 'out_of_stock' || varData.status === 'inactive')) {
-            const prodName = item.product?.name || 'Selected Item';
-            const sizeStr = item.variant?.size ? ` (${item.variant.size})` : '';
+          const prodName = item.product?.name || 'Selected Item';
+          const sizeStr = item.variant?.size ? ` (${item.variant.size})` : '';
+
+          if (varData?.status === 'inactive') {
             throw new Error(`Sorry, "${prodName}"${sizeStr} is currently out of stock.`);
+          }
+
+          const inv = varData?.inventory?.[0] ?? varData?.inventory;
+          if (inv) {
+            const available = (inv.quantity ?? 0) - (inv.reserved_quantity ?? 0);
+            if (available < item.quantity) {
+              throw new Error(`Only ${available} unit(s) of "${prodName}"${sizeStr} are available.`);
+            }
           }
         }
       }
@@ -401,11 +419,16 @@ export default function CheckoutPage() {
           });
         }
 
+        const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || rzpOrderData.key_id;
+        if (!razorpayKey) {
+          throw new Error('Payment gateway not configured. Please contact support.');
+        }
+
         const options: any = {
-          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || rzpOrderData.key_id || 'rzp_test_TYUiVucKt34LE4',
+          key: razorpayKey,
           amount: rzpOrderData.amount,
           currency: rzpOrderData.currency || 'INR',
-          name: 'THREADX / WAR',
+          name: 'WAR — Without Any Regrets',
           description: `Payment for Order #${generatedRef}`,
           image: 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=200&h=200&fit=crop&auto=format',
           order_id: rzpOrderData.order_id,

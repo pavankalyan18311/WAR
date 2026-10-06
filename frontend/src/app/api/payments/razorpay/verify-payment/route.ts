@@ -2,19 +2,62 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { createShiprocketOrder } from '@/lib/shiprocket';
+import { recordCouponUsage } from '@/lib/coupon';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_ANON_KEY;
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '4BLa7x7BWLapSTRy8f0J55AI';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? '';
+const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? '';
 
 function getAdminClient() {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Supabase service role credentials not configured');
+  }
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    auth: { autoRefreshToken: false, persistSession: false },
   });
+}
+
+async function getOrCreateGuestUser(supabase: any, email?: string, name?: string) {
+  let targetEmail = (email || '').trim().toLowerCase();
+  if (!targetEmail || !targetEmail.includes('@')) {
+    targetEmail = `guest_${Date.now()}_${Math.floor(Math.random() * 10000)}@warbrand.com`;
+  }
+
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', targetEmail)
+    .maybeSingle();
+
+  if (existingProfile?.id) {
+    return existingProfile.id;
+  }
+
+  try {
+    const { data: newUser } = await supabase.auth.admin.createUser({
+      email: targetEmail,
+      email_confirm: true,
+      user_metadata: { name: name || 'Guest Customer' },
+    });
+
+    if (newUser?.user?.id) {
+      return newUser.user.id;
+    }
+  } catch (err) {
+    console.warn('Guest account creation notice:', err);
+  }
+
+  const { data: firstProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .limit(1)
+    .maybeSingle();
+
+  return firstProfile?.id || null;
 }
 
 /**
@@ -35,6 +78,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required Razorpay verification parameters' }, { status: 400 });
     }
 
+    if (!RAZORPAY_KEY_SECRET) {
+      return NextResponse.json({ error: 'Payment gateway not configured' }, { status: 500 });
+    }
+
     // 1. Verify Razorpay HMAC Signature
     const expectedSignature = crypto
       .createHmac('sha256', RAZORPAY_KEY_SECRET)
@@ -47,9 +94,7 @@ export async function POST(request: Request) {
     }
 
     // 2. Fetch Exact Payment Details from Razorpay API
-    const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TYUiVucKt34LE4';
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || '4BLa7x7BWLapSTRy8f0J55AI';
-    const authHeader = 'Basic ' + Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+    const authHeader = 'Basic ' + Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString('base64');
 
     let rzpMethod = 'card';
     let rzpDetails: any = {};
@@ -108,9 +153,16 @@ export async function POST(request: Request) {
         bank: rzpDetails.bank || null,
       };
 
+      // Resolve valid user_id (for guest buyers or logged-in users)
+      let finalUserId = orderPayload.user_id;
+      if (!finalUserId) {
+        const guestEmail = rawAddress.email || orderPayload.email || '';
+        finalUserId = await getOrCreateGuestUser(supabase, guestEmail, cleanShippingAddress.full_name);
+      }
+
       const finalOrder = {
         id: orderPayload.id,
-        user_id: orderPayload.user_id || null,
+        user_id: finalUserId,
         status: 'confirmed',
         subtotal: Number(orderPayload.subtotal || 0),
         discount: Number(orderPayload.discount || 0),
@@ -169,7 +221,12 @@ export async function POST(request: Request) {
         }
       }
 
-      // 4. Trigger Shiprocket shipment creation automatically for Razorpay orders!
+      // 4. Record coupon usage if a coupon was applied
+      if (finalOrder.coupon_code && finalUserId) {
+        await recordCouponUsage(finalOrder.coupon_code, finalUserId, finalOrder.id);
+      }
+
+      // 5. Trigger Shiprocket shipment creation automatically for Razorpay orders!
       try {
         const shipItems = (orderItems || []).map((it: any) => ({
           name: 'WAR Apparel',
@@ -187,7 +244,7 @@ export async function POST(request: Request) {
           billing_pincode: cleanShippingAddress.pincode || '560057',
           billing_state: cleanShippingAddress.state || 'State',
           billing_country: cleanShippingAddress.country || 'India',
-          billing_email: 'customer@war.com',
+          billing_email: rawAddress.email || cleanShippingAddress.full_name?.toLowerCase().replace(/\s/g, '') + '@war.in',
           billing_phone: cleanShippingAddress.phone || '9988776655',
           shipping_is_billing: true,
           order_items: shipItems.length > 0 ? shipItems : [{ name: 'WAR Streetwear Tee', sku: 'WAR-TEE', units: 1, selling_price: Number(finalOrder.total) }],

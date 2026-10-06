@@ -3,8 +3,8 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_TYUiVucKt34LE4';
-const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '4BLa7x7BWLapSTRy8f0J55AI';
+const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? '';
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? '';
 
 /**
  * POST /api/payments/razorpay/create-order
@@ -12,6 +12,10 @@ const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || '4BLa7x7BWLapSTRy
  */
 export async function POST(request: Request) {
   try {
+    if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET) {
+      return NextResponse.json({ error: 'Payment gateway not configured' }, { status: 500 });
+    }
+
     const body = await request.json();
     const { amount, receiptId, notes } = body;
 

@@ -1,88 +1,133 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Edit2, Trash2, GripVertical, ImageIcon, X, Save } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, GripVertical, ImageIcon, X, Save, RefreshCw } from 'lucide-react';
 
 interface Collection {
   id: string;
   name: string;
   slug: string;
-  description: string;
-  image: string;
-  productCount: number;
-  status: 'Active' | 'Hidden';
-  order: number;
+  description: string | null;
+  image_url: string | null;
+  display_order: number;
+  is_active: boolean;
 }
-
-const INITIAL_COLLECTIONS: Collection[] = [
-  { id: 'c1', name: 'Oversized Fits', slug: 'oversized', description: 'Boxy, relaxed silhouettes for the streetwear-forward man.', image: 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=80&h=80&fit=crop', productCount: 18, status: 'Active', order: 1 },
-  { id: 'c2', name: 'Classic Essentials', slug: 'classic', description: 'Timeless everyday basics built to last.', image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=80&h=80&fit=crop', productCount: 24, status: 'Active', order: 2 },
-  { id: 'c3', name: 'Graphic Series', slug: 'graphic', description: 'Bold prints and artistic statements.', image: 'https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?w=80&h=80&fit=crop', productCount: 12, status: 'Active', order: 3 },
-  { id: 'c4', name: 'Premium Collection', slug: 'premium', description: 'Luxe fabrics — Pima cotton, modal blends, and more.', image: 'https://images.unsplash.com/photo-1503341455253-b2e723bb3dbb?w=80&h=80&fit=crop', productCount: 9, status: 'Active', order: 4 },
-  { id: 'c5', name: 'Summer Edit', slug: 'summer', description: 'Light, breathable picks for the hot season.', image: 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=80&h=80&fit=crop', productCount: 7, status: 'Hidden', order: 5 },
-];
 
 interface FormState {
   name: string;
   slug: string;
   description: string;
-  status: 'Active' | 'Hidden';
+  image_url: string;
+  is_active: boolean;
 }
 
+const EMPTY_FORM: FormState = { name: '', slug: '', description: '', image_url: '', is_active: true };
+
 export default function AdminCollectionsPage() {
-  const [collections, setCollections] = useState<Collection[]>(INITIAL_COLLECTIONS);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>({ name: '', slug: '', description: '', status: 'Active' });
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCollections = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/collections');
+      const json = await res.json();
+      setCollections(json.collections ?? []);
+    } catch {
+      setCollections([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchCollections(); }, []);
+
+  const autoSlug = (name: string) =>
+    name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   const openNew = () => {
     setEditId(null);
-    setForm({ name: '', slug: '', description: '', status: 'Active' });
+    setForm(EMPTY_FORM);
+    setError(null);
     setShowModal(true);
   };
 
   const openEdit = (col: Collection) => {
     setEditId(col.id);
-    setForm({ name: col.name, slug: col.slug, description: col.description, status: col.status });
+    setForm({
+      name: col.name,
+      slug: col.slug,
+      description: col.description || '',
+      image_url: col.image_url || '',
+      is_active: col.is_active,
+    });
+    setError(null);
     setShowModal(true);
   };
 
   const handleSave = async () => {
+    if (!form.name.trim() || !form.slug.trim()) return;
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-    if (editId) {
-      setCollections((prev) =>
-        prev.map((c) => c.id === editId ? { ...c, ...form } : c)
-      );
-    } else {
-      const newCol: Collection = {
-        id: `c${Date.now()}`,
-        ...form,
-        image: '',
-        productCount: 0,
-        order: collections.length + 1,
+    setError(null);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        slug: form.slug.trim(),
+        description: form.description.trim() || null,
+        image_url: form.image_url.trim() || null,
+        is_active: form.is_active,
       };
-      setCollections((prev) => [...prev, newCol]);
+
+      const url = editId ? `/api/admin/collections/${editId}` : '/api/admin/collections';
+      const method = editId ? 'PATCH' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Failed to save collection');
+        return;
+      }
+      setShowModal(false);
+      await fetchCollections();
+    } catch {
+      setError('Network error — please try again');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setShowModal(false);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Delete this collection? Products won\'t be deleted.')) {
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this collection? This cannot be undone.')) return;
+    try {
+      await fetch(`/api/admin/collections/${id}`, { method: 'DELETE' });
       setCollections((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      alert('Failed to delete collection');
     }
   };
 
-  const toggleStatus = (id: string) => {
-    setCollections((prev) =>
-      prev.map((c) => c.id === id ? { ...c, status: c.status === 'Active' ? 'Hidden' : 'Active' } : c)
-    );
+  const toggleStatus = async (col: Collection) => {
+    try {
+      const res = await fetch(`/api/admin/collections/${col.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !col.is_active }),
+      });
+      if (res.ok) {
+        setCollections((prev) => prev.map((c) => c.id === col.id ? { ...c, is_active: !col.is_active } : c));
+      }
+    } catch {
+      alert('Failed to update status');
+    }
   };
-
-  const autoSlug = (name: string) =>
-    name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   return (
     <div className="space-y-6">
@@ -94,14 +139,24 @@ export default function AdminCollectionsPage() {
             Organise products into storefront collections
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
-          style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-        >
-          <Plus size={16} />
-          New Collection
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchCollections}
+            className="p-2 rounded-xl transition-all"
+            style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}
+            title="Refresh"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
+            style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
+          >
+            <Plus size={16} />
+            New Collection
+          </button>
+        </div>
       </div>
 
       {/* Quick stats */}
@@ -112,124 +167,121 @@ export default function AdminCollectionsPage() {
         </div>
         <div className="rounded-xl p-4 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <div className="text-2xl font-bold" style={{ color: '#22c55e' }}>
-            {collections.filter((c) => c.status === 'Active').length}
+            {collections.filter((c) => c.is_active).length}
           </div>
           <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Active</div>
         </div>
         <div className="rounded-xl p-4 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="text-2xl font-bold">
-            {collections.reduce((sum, c) => sum + c.productCount, 0)}
+          <div className="text-2xl font-bold" style={{ color: 'var(--fg-muted)' }}>
+            {collections.filter((c) => !c.is_active).length}
           </div>
-          <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Total Products</div>
+          <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Hidden</div>
         </div>
       </div>
 
       {/* Collections grid */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {collections.sort((a, b) => a.order - b.order).map((col) => (
-          <div
-            key={col.id}
-            className="rounded-2xl overflow-hidden transition-all"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', opacity: col.status === 'Hidden' ? 0.65 : 1 }}
-          >
-            {/* Cover image */}
-            <div className="relative h-32 overflow-hidden" style={{ background: 'var(--bg-subtle)' }}>
-              {col.image ? (
-                <img src={col.image} alt={col.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <ImageIcon size={32} style={{ color: 'var(--fg-muted)' }} />
-                </div>
-              )}
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent)' }} />
-
-              {/* Drag handle */}
-              <button
-                className="absolute top-2 left-2 p-1.5 rounded-lg"
-                style={{ background: 'rgba(255,255,255,0.2)', color: 'white' }}
-              >
-                <GripVertical size={14} />
-              </button>
-
-              {/* Status badge */}
-              <span
-                className="absolute top-2 right-2 text-xs px-2 py-0.5 rounded-full font-medium"
-                style={{
-                  background: col.status === 'Active' ? 'rgba(34,197,94,0.9)' : 'rgba(0,0,0,0.5)',
-                  color: 'white',
-                }}
-              >
-                {col.status}
-              </span>
-
-              {/* Name overlay */}
-              <div className="absolute bottom-2 left-3 text-white">
-                <div className="font-bold text-sm">{col.name}</div>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-4">
-              <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--fg-muted)' }}>
-                {col.description || 'No description'}
-              </p>
-              <div className="flex items-center justify-between">
-                <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>
-                  <span className="font-semibold" style={{ color: 'var(--fg)' }}>{col.productCount}</span> products
-                  &nbsp;·&nbsp;
-                  <span>/collections/{col.slug}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+      {loading ? (
+        <div className="flex items-center justify-center py-20" style={{ color: 'var(--fg-muted)' }}>
+          <RefreshCw size={20} className="animate-spin mr-2" />
+          Loading collections…
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {collections.sort((a, b) => a.display_order - b.display_order).map((col) => (
+            <div
+              key={col.id}
+              className="rounded-2xl overflow-hidden transition-all"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', opacity: col.is_active ? 1 : 0.65 }}
+            >
+              {/* Cover image */}
+              <div className="relative h-32 overflow-hidden" style={{ background: 'var(--bg-subtle)' }}>
+                {col.image_url ? (
+                  <img src={col.image_url} alt={col.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <ImageIcon size={32} style={{ color: 'var(--fg-muted)' }} />
+                  </div>
+                )}
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent)' }} />
                 <button
-                  onClick={() => toggleStatus(col.id)}
-                  className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  className="absolute top-2 left-2 p-1.5 rounded-lg"
+                  style={{ background: 'rgba(255,255,255,0.2)', color: 'white' }}
+                >
+                  <GripVertical size={14} />
+                </button>
+                <span
+                  className="absolute top-2 right-2 text-xs px-2 py-0.5 rounded-full font-medium"
                   style={{
-                    background: col.status === 'Active' ? 'rgba(234,179,8,0.1)' : 'rgba(34,197,94,0.1)',
-                    color: col.status === 'Active' ? '#eab308' : '#22c55e',
+                    background: col.is_active ? 'rgba(34,197,94,0.9)' : 'rgba(0,0,0,0.5)',
+                    color: 'white',
                   }}
                 >
-                  {col.status === 'Active' ? 'Hide' : 'Activate'}
-                </button>
-                <button
-                  onClick={() => openEdit(col)}
-                  className="p-1.5 rounded-lg transition-all"
-                  style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--fg)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-muted)'; }}
-                >
-                  <Edit2 size={15} />
-                </button>
-                <button
-                  onClick={() => handleDelete(col.id)}
-                  className="p-1.5 rounded-lg transition-all"
-                  style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.color = 'var(--fg-muted)'; }}
-                >
-                  <Trash2 size={15} />
-                </button>
+                  {col.is_active ? 'Active' : 'Hidden'}
+                </span>
+                <div className="absolute bottom-2 left-3 text-white">
+                  <div className="font-bold text-sm">{col.name}</div>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-4">
+                <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--fg-muted)' }}>
+                  {col.description || 'No description'}
+                </p>
+                <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>
+                  /collections/{col.slug}
+                </div>
+                <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                  <button
+                    onClick={() => toggleStatus(col)}
+                    className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-all"
+                    style={{
+                      background: col.is_active ? 'rgba(234,179,8,0.1)' : 'rgba(34,197,94,0.1)',
+                      color: col.is_active ? '#eab308' : '#22c55e',
+                    }}
+                  >
+                    {col.is_active ? 'Hide' : 'Activate'}
+                  </button>
+                  <button
+                    onClick={() => openEdit(col)}
+                    className="p-1.5 rounded-lg transition-all"
+                    style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--fg)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-muted)'; }}
+                  >
+                    <Edit2 size={15} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(col.id)}
+                    className="p-1.5 rounded-lg transition-all"
+                    style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#ef4444'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.color = 'var(--fg-muted)'; }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {/* Add new card */}
-        <button
-          onClick={openNew}
-          className="rounded-2xl h-64 flex flex-col items-center justify-center gap-3 transition-all"
-          style={{
-            background: 'var(--bg-subtle)',
-            border: '2px dashed var(--border)',
-            color: 'var(--fg-muted)',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--fg-muted)'; }}
-        >
-          <Plus size={24} />
-          <span className="text-sm font-medium">Add Collection</span>
-        </button>
-      </div>
+          {/* Add new card */}
+          <button
+            onClick={openNew}
+            className="rounded-2xl h-64 flex flex-col items-center justify-center gap-3 transition-all"
+            style={{
+              background: 'var(--bg-subtle)',
+              border: '2px dashed var(--border)',
+              color: 'var(--fg-muted)',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--fg-muted)'; }}
+          >
+            <Plus size={24} />
+            <span className="text-sm font-medium">Add Collection</span>
+          </button>
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
@@ -248,6 +300,12 @@ export default function AdminCollectionsPage() {
                 <X size={20} />
               </button>
             </div>
+
+            {error && (
+              <div className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
+                {error}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium mb-2">Collection Name *</label>
@@ -287,18 +345,30 @@ export default function AdminCollectionsPage() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium mb-2">Cover Image URL</label>
+              <input
+                value={form.image_url}
+                onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
+                type="url"
+                placeholder="https://…"
+                className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
+              />
+            </div>
+
             <div className="flex items-center gap-3">
-              {(['Active', 'Hidden'] as const).map((s) => (
+              {([true, false] as const).map((active) => (
                 <button
-                  key={s}
-                  onClick={() => setForm((f) => ({ ...f, status: s }))}
+                  key={String(active)}
+                  onClick={() => setForm((f) => ({ ...f, is_active: active }))}
                   className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all"
                   style={{
-                    background: form.status === s ? 'var(--primary)' : 'var(--bg-subtle)',
-                    color: form.status === s ? 'var(--primary-fg)' : 'var(--fg-muted)',
+                    background: form.is_active === active ? 'var(--primary)' : 'var(--bg-subtle)',
+                    color: form.is_active === active ? 'var(--primary-fg)' : 'var(--fg-muted)',
                   }}
                 >
-                  {s}
+                  {active ? 'Active' : 'Hidden'}
                 </button>
               ))}
             </div>
@@ -313,12 +383,12 @@ export default function AdminCollectionsPage() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !form.name}
+                disabled={saving || !form.name.trim() || !form.slug.trim()}
                 className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold"
                 style={{
                   background: 'var(--primary)',
                   color: 'var(--primary-fg)',
-                  opacity: !form.name ? 0.5 : 1,
+                  opacity: (!form.name.trim() || !form.slug.trim()) ? 0.5 : 1,
                 }}
               >
                 {saving ? (

@@ -5,39 +5,50 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Trash2, Plus, Minus, ArrowRight, Tag, X, ShieldCheck, ShoppingBag } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
+import { useAuthStore } from '@/store/authStore';
 import { formatPrice } from '@/lib/utils';
 
 export default function CartPage() {
   const { items, removeItem, updateQuantity, getSummary, applyCoupon, removeCoupon, couponCode } = useCartStore();
+  const { user } = useAuthStore();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const [couponInput, setCouponInput] = useState('');
   const [couponError, setCouponError] = useState('');
   const [couponSuccess, setCouponSuccess] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
   const summary = getSummary();
 
-  const COUPONS: Record<string, { type: 'percent' | 'flat'; value: number; label: string }> = {
-    SUMMER20: { type: 'percent', value: 20, label: '20% off' },
-    WELCOME10: { type: 'percent', value: 10, label: '10% off' },
-    FIRST10: { type: 'percent', value: 10, label: '10% off your first order' },
-    SAVE15: { type: 'percent', value: 15, label: '15% off' },
-    FLAT100: { type: 'flat', value: 100, label: '₹100 off' },
-    FLAT200: { type: 'flat', value: 200, label: '₹200 off' },
-  };
-
-  const handleCoupon = () => {
+  const handleCoupon = async () => {
     const code = couponInput.toUpperCase().trim();
-    const coupon = COUPONS[code];
-    if (coupon) {
-      const discount = coupon.type === 'percent'
-        ? Math.round(summary.subtotal * coupon.value / 100)
-        : Math.min(coupon.value, summary.subtotal);
-      applyCoupon(code, discount);
-      setCouponSuccess(`${coupon.label} applied!`);
-      setCouponError('');
-    } else {
-      setCouponError('Invalid coupon code. Try SUMMER20, FIRST10, or FLAT100.');
-      setCouponSuccess('');
+    if (!code) return;
+    setCouponError('');
+    setCouponSuccess('');
+    setCouponLoading(true);
+
+    try {
+      const res = await fetch('/api/coupons/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, subtotal: summary.subtotal, user_id: user?.id }),
+      });
+      const data = await res.json();
+
+      if (data.valid) {
+        applyCoupon(data.coupon.code, data.discount, data.coupon.discount_type);
+        const desc = data.coupon.discount_type === 'free_shipping'
+          ? 'Free shipping applied!'
+          : data.coupon.discount_type === 'flat'
+            ? `₹${data.discount} off applied!`
+            : `${data.coupon.discount_value}% off applied!`;
+        setCouponSuccess(desc);
+      } else {
+        setCouponError(data.error || 'Invalid coupon code.');
+      }
+    } catch {
+      setCouponError('Could not validate coupon. Please try again.');
+    } finally {
+      setCouponLoading(false);
     }
   };
 
@@ -222,17 +233,22 @@ export default function CartPage() {
                   </p>
                   <div className="flex gap-2">
                     <input data-testid="cart-coupon-input" type="text" value={couponInput}
-                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      placeholder="e.g. SUMMER20, FIRST10"
+                      onChange={(e) => { setCouponInput(e.target.value.toUpperCase()); setCouponError(''); setCouponSuccess(''); }}
+                      placeholder="Enter coupon code"
                       className="flex-1 px-3 py-2 rounded-xl text-xs font-medium outline-none"
                       style={{ background: 'var(--bg-elevated)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}
                       onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--ring)')}
                       onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border)')}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCoupon()}
+                      disabled={couponLoading}
                     />
                     <button onClick={handleCoupon}
-                      className="px-3 py-2 rounded-xl text-xs font-bold"
-                      style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                      Apply
+                      disabled={couponLoading || !couponInput.trim()}
+                      className="px-3 py-2 rounded-xl text-xs font-bold min-w-[60px] flex items-center justify-center"
+                      style={{ background: 'var(--primary)', color: 'var(--primary-fg)', opacity: couponLoading || !couponInput.trim() ? 0.6 : 1 }}>
+                      {couponLoading
+                        ? <span className="w-3 h-3 border border-t-transparent rounded-full animate-spin" style={{ borderColor: 'var(--primary-fg)', borderTopColor: 'transparent' }} />
+                        : 'Apply'}
                     </button>
                   </div>
                   {couponError && <p className="text-[11px] mt-1.5 font-medium" style={{ color: 'var(--danger)' }}>{couponError}</p>}

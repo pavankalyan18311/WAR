@@ -57,15 +57,27 @@ export async function updateSession(request: NextRequest) {
 
     const { data: { user } } = await Promise.race([authPromise, timeoutPromise]);
 
-    // Protect admin routes — redirect to admin login if not authenticated as admin
-    if (
-      pathname.startsWith('/admin') &&
-      pathname !== '/admin/login' &&
-      !user
-    ) {
-      const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = '/admin/login';
-      return NextResponse.redirect(loginUrl);
+    // Protect admin routes — check user exists AND has an admin role
+    if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+      if (!user) {
+        const loginUrl = request.nextUrl.clone();
+        loginUrl.pathname = '/admin/login';
+        return NextResponse.redirect(loginUrl);
+      }
+
+      // Verify role from profiles table
+      const { data: profile } = await (supabase as any)
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      const role = ((profile as any)?.role || '').toLowerCase();
+      if (!['admin', 'super_admin', 'manager'].includes(role)) {
+        const loginUrl = request.nextUrl.clone();
+        loginUrl.pathname = '/admin/login';
+        return NextResponse.redirect(loginUrl);
+      }
     }
   } catch (err) {
     console.warn('Middleware auth notice:', err);

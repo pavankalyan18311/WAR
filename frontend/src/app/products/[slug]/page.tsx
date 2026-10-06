@@ -135,6 +135,8 @@ function Stars({ rating, size = 13 }: { rating: number; size?: number }) {
 }
 
 export default function ProductDetailPage({ params }: { params: Promise<{ slug: string }> | { slug: string } }) {
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
   const resolvedParams = typeof (params as any)?.then === 'function' ? use(params as Promise<{ slug: string }>) : (params as { slug: string });
   const slug = resolvedParams?.slug;
   const [product, setProduct] = useState<any | null>(null);
@@ -204,6 +206,10 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
   );
 
   const handleAddToCart = () => {
+    if (!user) {
+      router.push(`/auth/login?redirect=${encodeURIComponent(typeof window !== 'undefined' ? window.location.pathname : '/products')}`);
+      return;
+    }
     if (!selectedSize) { setSizeError(true); return; }
     setSizeError(false);
     const variant = selectedVariant ?? product.variants?.[0];

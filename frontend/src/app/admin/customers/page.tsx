@@ -1,19 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import {
-  Users,
-  Search,
-  Mail,
-  Phone,
-  Calendar,
-  ShoppingBag,
-  IndianRupee,
-  ShieldCheck,
-  ChevronDown,
-  UserCheck,
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, Search, RefreshCw } from 'lucide-react';
 
 interface Customer {
   id: string;
@@ -26,50 +14,25 @@ interface Customer {
   role: string;
 }
 
-const MOCK_CUSTOMERS: Customer[] = [
-  { id: 'c1', name: 'Arjun Sharma', email: 'arjun@example.com', phone: '+91 98765 43210', orders_count: 5, total_spent: 8990, created_at: '2026-01-15', role: 'Customer' },
-  { id: 'c2', name: 'Ravi Kumar', email: 'ravi@example.com', phone: '+91 98765 12345', orders_count: 3, total_spent: 4297, created_at: '2026-02-02', role: 'Customer' },
-  { id: 'c3', name: 'Pavan Kalyan', email: 'maladoddipavankalyan@gmail.com', phone: '+91 91234 56789', orders_count: 8, total_spent: 14500, created_at: '2026-01-01', role: 'Super Admin' },
-  { id: 'c4', name: 'Deepak Nair', email: 'deepak@example.com', phone: '+91 99887 76655', orders_count: 2, total_spent: 2498, created_at: '2026-03-10', role: 'Customer' },
-  { id: 'c5', name: 'Karthik M', email: 'karthik@example.com', phone: '+91 97766 55443', orders_count: 4, total_spent: 6996, created_at: '2026-03-22', role: 'Customer' },
-  { id: 'c6', name: 'Suresh Babu', email: 'suresh@example.com', phone: '+91 95544 33221', orders_count: 1, total_spent: 2199, created_at: '2026-04-05', role: 'Customer' },
-];
-
 export default function AdminCustomersPage() {
-  const supabase = useMemo(() => createClient(), []);
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchCustomers = async () => {
-      try {
-        const { data: profiles } = await (supabase as any)
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
+  const fetchCustomers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/customers');
+      const json = await res.json();
+      setCustomers(json.customers ?? []);
+    } catch {
+      setCustomers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        if (profiles && profiles.length > 0) {
-          const mapped: Customer[] = profiles.map((p: any) => ({
-            id: p.id,
-            name: p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Customer',
-            email: p.email || 'customer@war.in',
-            phone: p.phone || 'N/A',
-            orders_count: 1 + (p.id ? p.id.charCodeAt(0) % 5 : 0),
-            total_spent: 999 * (1 + (p.id ? p.id.charCodeAt(0) % 5 : 0)),
-            created_at: new Date(p.created_at || Date.now()).toISOString().split('T')[0],
-            role: p.role ? p.role.charAt(0).toUpperCase() + p.role.slice(1) : 'Customer',
-          }));
-          setCustomers(mapped);
-        }
-      } catch (err) {
-        console.error('Failed to fetch customers from Supabase', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchCustomers();
-  }, [supabase]);
+  useEffect(() => { fetchCustomers(); }, []);
 
   const filtered = customers.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -78,6 +41,9 @@ export default function AdminCustomersPage() {
   );
 
   const totalSpentAll = customers.reduce((sum, c) => sum + c.total_spent, 0);
+  const avgOrders = customers.length > 0
+    ? (customers.reduce((sum, c) => sum + c.orders_count, 0) / customers.length).toFixed(1)
+    : '0.0';
 
   return (
     <div className="space-y-6">
@@ -89,6 +55,14 @@ export default function AdminCustomersPage() {
             Manage registered user accounts & customer insights
           </p>
         </div>
+        <button
+          onClick={fetchCustomers}
+          className="p-2 rounded-xl transition-all"
+          style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}
+          title="Refresh"
+        >
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       {/* Stats */}
@@ -102,9 +76,7 @@ export default function AdminCustomersPage() {
           <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Customer Lifetime Value</div>
         </div>
         <div className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="text-2xl font-bold" style={{ color: 'var(--accent)' }}>
-            {(customers.reduce((sum, c) => sum + c.orders_count, 0) / Math.max(1, customers.length)).toFixed(1)}
-          </div>
+          <div className="text-2xl font-bold" style={{ color: 'var(--accent)' }}>{avgOrders}</div>
           <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Avg. Orders per Customer</div>
         </div>
       </div>
@@ -125,71 +97,78 @@ export default function AdminCustomersPage() {
 
       {/* Customer Table */}
       <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-        <table className="w-full text-sm">
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-subtle)' }}>
-              <th className="text-left px-5 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Customer</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden md:table-cell" style={{ color: 'var(--fg-muted)' }}>Contact</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Orders</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Total Spent</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Role</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>Joined</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
-                  <Users size={32} className="mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No customers found</p>
-                </td>
+        {loading ? (
+          <div className="flex items-center justify-center py-16" style={{ color: 'var(--fg-muted)' }}>
+            <RefreshCw size={20} className="animate-spin mr-2" />
+            Loading customers…
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-subtle)' }}>
+                <th className="text-left px-5 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Customer</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold hidden md:table-cell" style={{ color: 'var(--fg-muted)' }}>Contact</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Orders</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Total Spent</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Role</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>Joined</th>
               </tr>
-            ) : (
-              filtered.map((c, idx) => (
-                <tr
-                  key={c.id ? `${c.id}-${idx}` : `cust-${idx}`}
-                  style={{ borderBottom: '1px solid var(--border)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--bg-subtle)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
-                >
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0"
-                        style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                        {c.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-sm">{c.name}</div>
-                        <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{c.email}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 hidden md:table-cell">
-                    <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{c.phone}</span>
-                  </td>
-                  <td className="px-4 py-3.5 font-semibold">
-                    {c.orders_count} orders
-                  </td>
-                  <td className="px-4 py-3.5 font-bold" style={{ color: '#22c55e' }}>
-                    ₹{c.total_spent.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3.5 hidden sm:table-cell">
-                    <span className="inline-flex text-xs px-2.5 py-1 rounded-full font-medium"
-                      style={{
-                        background: c.role.toLowerCase().includes('admin') ? 'rgba(59,130,246,0.12)' : 'var(--bg-subtle)',
-                        color: c.role.toLowerCase().includes('admin') ? '#3b82f6' : 'var(--fg-muted)',
-                      }}>
-                      {c.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5 text-xs hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>
-                    {c.created_at}
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
+                    <Users size={32} className="mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">{search ? 'No customers match your search' : 'No customers yet'}</p>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                filtered.map((c, idx) => (
+                  <tr
+                    key={`${c.id}-${idx}`}
+                    style={{ borderBottom: '1px solid var(--border)' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--bg-subtle)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
+                  >
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs shrink-0"
+                          style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-sm">{c.name}</div>
+                          <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{c.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 hidden md:table-cell">
+                      <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{c.phone}</span>
+                    </td>
+                    <td className="px-4 py-3.5 font-semibold">
+                      {c.orders_count} {c.orders_count === 1 ? 'order' : 'orders'}
+                    </td>
+                    <td className="px-4 py-3.5 font-bold" style={{ color: '#22c55e' }}>
+                      ₹{c.total_spent.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3.5 hidden sm:table-cell">
+                      <span className="inline-flex text-xs px-2.5 py-1 rounded-full font-medium"
+                        style={{
+                          background: c.role.includes('admin') || c.role.includes('manager') ? 'rgba(59,130,246,0.12)' : 'var(--bg-subtle)',
+                          color: c.role.includes('admin') || c.role.includes('manager') ? '#3b82f6' : 'var(--fg-muted)',
+                        }}>
+                        {c.role.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-xs hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>
+                      {c.created_at}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

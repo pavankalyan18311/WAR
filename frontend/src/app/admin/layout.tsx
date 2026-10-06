@@ -67,22 +67,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           let profileRole = '';
           try {
-            const { data: profiles } = await (supabase as any)
+            const { data: profile } = await (supabase as any)
               .from('profiles')
-              .select('*')
-              .eq('id', user.id);
-            if (profiles && profiles.length > 0) profileRole = profiles[0]?.role || '';
-          } catch (pErr) {
-            // Ignore
+              .select('role')
+              .eq('id', user.id)
+              .single();
+            if (profile) profileRole = (profile as any).role || '';
+          } catch {
+            // ignore
           }
 
-          const role = (profileRole || appMeta.role || userMeta.role || '').toLowerCase();
-          
-          if (userEmail === 'maladoddipavankalyan@gmail.com' || ['admin', 'super_admin', 'manager'].includes(role)) {
+          const role = profileRole.toLowerCase();
+
+          if (['admin', 'super_admin', 'manager'].includes(role)) {
             setIsDenied(false);
             setRoleChecked(true);
             return;
-          } else if (role === 'customer') {
+          } else {
             setIsDenied(true);
             setRoleChecked(true);
             return;
@@ -258,13 +259,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             const meta = user?.user_metadata || {};
             const displayName = meta.first_name || meta.name
               ? `${meta.first_name || meta.name} ${meta.last_name || ''}`.trim()
-              : admin?.name || (user?.email ? user.email.split('@')[0] : 'Pavan Kalyan');
-            
-            const displayRole = (user?.email || '').toLowerCase().trim() === 'maladoddipavankalyan@gmail.com'
-              ? 'Super Admin'
-              : admin?.role
-                ? admin.role.replace('_', ' ')
-                : authRole || 'Admin';
+              : admin?.name || (user?.email ? user.email.split('@')[0] : 'Admin');
+
+            const displayRole = admin?.role
+              ? admin.role.replace('_', ' ')
+              : authRole || 'Admin';
             
             const initial = displayName.charAt(0).toUpperCase();
 

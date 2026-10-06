@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Heart, Star, Eye, ShoppingBag } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { useWishlistStore } from '@/store/wishlistStore';
+import { useAuthStore } from '@/store/authStore';
 import { formatPrice, cn } from '@/lib/utils';
 import type { Product } from '@/types';
 
@@ -17,6 +18,7 @@ interface ProductCardProps {
 
 export default function ProductCard({ product, className }: ProductCardProps) {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -75,6 +77,10 @@ export default function ProductCard({ product, className }: ProductCardProps) {
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!user) {
+      router.push('/auth/login');
+      return;
+    }
     if (defaultVariant && isInStock) addItem(product, defaultVariant, 1);
   };
 

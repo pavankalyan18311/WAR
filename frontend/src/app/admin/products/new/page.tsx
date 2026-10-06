@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Plus, X, Save, Eye, Link as LinkIcon } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { uploadProductImageToStorage, syncProductImagesToDatabase } from '@/lib/supabase/storage';
+import { uploadProductImageToStorage, syncProductImagesToDatabase, syncProductMediaToDatabase } from '@/lib/supabase/storage';
+import { getOrCreateCategory, linkProductCategory, saveProductVariantsAndInventory } from '@/lib/supabase/db';
 
 const CATEGORIES = [
   'Oversized',
@@ -64,6 +65,10 @@ interface FormState {
   care_instructions: string;
   fabric: string;
   fit: string;
+  pattern: string;
+  sleeve_type: string;
+  neck_type: string;
+  gender: string;
 }
 
 export default function NewProductPage() {
@@ -89,6 +94,10 @@ export default function NewProductPage() {
     care_instructions: '',
     fabric: '',
     fit: 'Regular',
+    pattern: '',
+    sleeve_type: '',
+    neck_type: '',
+    gender: '',
   });
   const [images, setImages] = useState<string[]>([]);
   const [rawImageFiles, setRawImageFiles] = useState<File[]>([]);
@@ -201,91 +210,98 @@ export default function NewProductPage() {
       }
 
       const finalImages = uploadedUrls.length > 0 ? uploadedUrls : [defaultImg];
-      const imagePayload = finalImages.map((url) => ({ url }));
 
       // 2. Insert into Supabase products table
-      let newProds: any[] | null = null;
-      let prodErr: any = null;
+      let createdProd: any = null;
 
-      // Attempt 1: Standard DB schema columns (id, sku, name, slug, description, price, discount_price)
-      const attempt1 = await (supabase as any)
+      const productPayload: any = {
+        id: generatedId,
+        name: form.name.trim(),
+        slug: slug,
+        description: fullDescription,
+        fabric: fabText,
+        fit: fitText,
+        pattern: form.pattern || null,
+        sleeve_type: form.sleeve_type || null,
+        neck_type: form.neck_type || null,
+        gender: form.gender || null,
+        status: publish ? 'active' : (form.status.toLowerCase() === 'active' ? 'active' : 'draft'),
+      };
+
+      // Attach legacy fields as fallback in case table has them
+      productPayload.price = priceNum;
+      if (discountNum) productPayload.discount_price = discountNum;
+      productPayload.sku = finalSku;
+
+      const { data: prodData, error: prodErr } = await (supabase as any)
         .from('products')
-        .insert([{
-          id: generatedId,
-          sku: finalSku,
-          name: form.name.trim(),
-          slug: slug,
-          description: fullDescription,
-          price: priceNum,
-          discount_price: discountNum,
-        }])
+        .insert([productPayload])
         .select();
 
-      if (!attempt1.error && attempt1.data) {
-        newProds = attempt1.data;
-      } else {
-        prodErr = attempt1.error;
+      if (prodData && prodData.length > 0) {
+        createdProd = prodData[0];
+      } else if (prodErr) {
+        // Retry without legacy columns if column missing error occurs
+        delete productPayload.price;
+        delete productPayload.discount_price;
+        delete productPayload.sku;
 
-        // Attempt 2: Without explicit ID (auto-gen UUID)
-        const attempt2 = await (supabase as any)
+        const { data: prodData2, error: prodErr2 } = await (supabase as any)
           .from('products')
-          .insert([{
-            sku: finalSku,
-            name: form.name.trim(),
-            slug: slug,
-            description: fullDescription,
-            price: priceNum,
-            discount_price: discountNum,
-          }])
+          .insert([productPayload])
           .select();
 
-        if (!attempt2.error && attempt2.data) {
-          newProds = attempt2.data;
-          prodErr = null;
+        if (prodData2 && prodData2.length > 0) {
+          createdProd = prodData2[0];
         } else {
-          prodErr = attempt2.error;
-          console.error('Supabase Product Insert Failed:', attempt2.error);
-          if (attempt2.error && attempt2.error.code === '42501') {
+          console.error('Supabase Product Insert Error:', prodErr2 || prodErr);
+          if (prodErr2?.code === '42501' || prodErr?.code === '42501') {
             alert(
               'Supabase Row-Level Security (RLS) Notice:\n\n' +
-              'Your Supabase table "public.products" has RLS enabled which blocked this insert.\n\n' +
-              'To allow product creation, run this in your Supabase SQL Editor:\n' +
+              'Your table "public.products" blocked this insert.\n\n' +
+              'To fix, run in Supabase SQL Editor:\n' +
               'ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;'
             );
           }
         }
       }
 
-      const createdProd = newProds && newProds.length > 0 ? newProds[0] : null;
-      const prodId = createdProd?.id || createdProd?.product_id || generatedId;
+      const prodId = createdProd?.id || generatedId;
 
-      if (createdProd && prodId) {
-        // 3. Sync image records to product_images table linked to product_id
-        await syncProductImagesToDatabase(prodId, finalImages, form.name.trim());
-
-        const sizesToCreate = form.sizes.length > 0 ? form.sizes : ['M', 'L', 'XL'];
-        const colorsToCreate = form.colors.length > 0 ? form.colors : ['Black'];
-
-        const variantRows: any[] = [];
-        for (const col of colorsToCreate) {
-          for (const sz of sizesToCreate) {
-            const skuVal = `${form.sku || slug}-${col.slice(0, 3)}-${sz}`.toUpperCase();
-            const stockVal = stockBySize[sz] ? parseInt(stockBySize[sz]) : 25;
-            variantRows.push({
-              product_id: prodId,
-              sku: skuVal,
-              size: sz,
-              color: col,
-              stock_quantity: stockVal,
-              price_override: null,
-            });
-          }
-        }
-
-        if (variantRows.length > 0) {
-          await (supabase as any).from('product_variants').insert(variantRows);
+      // 3. Category linking via product_categories
+      if (form.category) {
+        const catRec = await getOrCreateCategory(form.category);
+        if (catRec?.id) {
+          await linkProductCategory(prodId, catRec.id);
         }
       }
+
+      // 4. Product Media & Images Sync
+      await syncProductMediaToDatabase(prodId, finalImages, form.name.trim());
+
+      // 5. Variants & Inventory Creation
+      const selectedColorsObj = form.colors.length > 0
+        ? form.colors.map((cName) => {
+            const found = colorOptions.find((opt) => opt.name.toLowerCase() === cName.toLowerCase());
+            return { name: cName, hex: found?.hex };
+          })
+        : [{ name: 'Default', hex: '#000000' }];
+
+      const selectedSizesList = form.sizes.length > 0 ? form.sizes : ['M', 'L', 'XL'];
+      const stockNumericMap: Record<string, number> = {};
+      Object.entries(stockBySize).forEach(([sz, qtyStr]) => {
+        stockNumericMap[sz] = parseInt(qtyStr) || 25;
+      });
+
+      await saveProductVariantsAndInventory(
+        prodId,
+        finalSku,
+        priceNum,
+        discountNum,
+        selectedColorsObj,
+        selectedSizesList,
+        stockNumericMap
+      );
 
       setSaved(true);
       setTimeout(() => {
@@ -432,10 +448,87 @@ export default function NewProductPage() {
                   className="w-full px-4 py-3 rounded-xl text-sm outline-none"
                   style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
                 >
+                  <option value="">Select fit</option>
                   <option>Regular</option>
                   <option>Oversized</option>
                   <option>Slim</option>
                   <option>Relaxed</option>
+                  <option>Boxy</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Gender</label>
+                <select
+                  value={form.gender}
+                  onChange={(e) => set('gender', e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                  style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
+                >
+                  <option value="">Select gender</option>
+                  <option>Men</option>
+                  <option>Women</option>
+                  <option>Unisex</option>
+                  <option>Kids</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Pattern</label>
+                <select
+                  value={form.pattern}
+                  onChange={(e) => set('pattern', e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                  style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
+                >
+                  <option value="">Select pattern</option>
+                  <option>Solid</option>
+                  <option>Striped</option>
+                  <option>Graphic</option>
+                  <option>Floral</option>
+                  <option>Abstract</option>
+                  <option>Geometric</option>
+                  <option>Tie-Dye</option>
+                  <option>Camo</option>
+                  <option>Checked</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Sleeve Type</label>
+                <select
+                  value={form.sleeve_type}
+                  onChange={(e) => set('sleeve_type', e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                  style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
+                >
+                  <option value="">Select sleeve type</option>
+                  <option>Half Sleeve</option>
+                  <option>Full Sleeve</option>
+                  <option>Sleeveless</option>
+                  <option>3/4 Sleeve</option>
+                  <option>Raglan</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Neck Type</label>
+                <select
+                  value={form.neck_type}
+                  onChange={(e) => set('neck_type', e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl text-sm outline-none"
+                  style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
+                >
+                  <option value="">Select neck type</option>
+                  <option>Round Neck</option>
+                  <option>V-Neck</option>
+                  <option>Polo</option>
+                  <option>Hoodie</option>
+                  <option>Collar</option>
+                  <option>Crew Neck</option>
+                  <option>Scoop Neck</option>
                 </select>
               </div>
             </div>

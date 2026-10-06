@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createShiprocketOrder } from '@/lib/shiprocket';
+import { recordCouponUsage } from '@/lib/coupon';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -117,6 +118,48 @@ export async function GET(request: Request) {
   }
 }
 
+async function getOrCreateGuestUser(supabase: any, email?: string, name?: string) {
+  let targetEmail = (email || '').trim().toLowerCase();
+  if (!targetEmail || !targetEmail.includes('@')) {
+    targetEmail = `guest_${Date.now()}_${Math.floor(Math.random() * 10000)}@warbrand.com`;
+  }
+
+  // 1. Check if profile already exists in public.profiles by email
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', targetEmail)
+    .maybeSingle();
+
+  if (existingProfile?.id) {
+    return existingProfile.id;
+  }
+
+  // 2. Auto-create guest user using Supabase Auth Admin SDK
+  try {
+    const { data: newUser } = await supabase.auth.admin.createUser({
+      email: targetEmail,
+      email_confirm: true,
+      user_metadata: { name: name || 'Guest Customer' },
+    });
+
+    if (newUser?.user?.id) {
+      return newUser.user.id;
+    }
+  } catch (err) {
+    console.warn('Guest account creation notice:', err);
+  }
+
+  // 3. Fallback: return any valid profile ID
+  const { data: firstProfile } = await supabase
+    .from('profiles')
+    .select('id')
+    .limit(1)
+    .maybeSingle();
+
+  return firstProfile?.id || null;
+}
+
 /**
  * POST /api/orders
  */
@@ -144,12 +187,19 @@ export async function POST(request: Request) {
       country: rawAddress.country || 'India',
     };
 
+    // Resolve valid user_id (for guest buyers or logged-in users)
+    let finalUserId = order.user_id;
+    if (!finalUserId) {
+      const guestEmail = rawAddress.email || order.email || '';
+      finalUserId = await getOrCreateGuestUser(supabase, guestEmail, cleanShippingAddress.full_name);
+    }
+
     // 1. Insert order record
     const { error: orderError } = await (supabase as any)
       .from('orders')
       .insert({
         id: order.id,
-        user_id: order.user_id || null,
+        user_id: finalUserId,
         status: order.status || 'confirmed',
         subtotal: Number(order.subtotal || 0),
         discount: Number(order.discount || 0),
@@ -190,7 +240,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. Trigger Shiprocket shipment creation automatically
+    // 3. Record coupon usage if applied
+    if (order.coupon_code && finalUserId) {
+      await recordCouponUsage(order.coupon_code, finalUserId, order.id);
+    }
+
+    // 4. Trigger Shiprocket shipment creation automatically
     try {
       const shipItems = (items || []).map((it: any) => ({
         name: 'WAR Apparel',

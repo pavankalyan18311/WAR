@@ -1,42 +1,28 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useAdminStore } from '@/store/adminStore';
-import { createClient } from '@/lib/supabase/client';
 import {
   TrendingUp,
   ShoppingCart,
   Users,
   Package,
   ArrowUpRight,
-  ArrowDownRight,
   Clock,
   CheckCircle2,
   Truck,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
-
-const STATS_DEFAULT = [
-  { label: 'Total Revenue', value: '₹4,82,350', change: '+12.5%', up: true, icon: TrendingUp, color: '#22c55e' },
-  { label: 'Orders Today', value: '147', change: '+8.2%', up: true, icon: ShoppingCart, color: 'var(--primary)' },
-  { label: 'New Customers', value: '38', change: '-3.1%', up: false, icon: Users, color: 'var(--accent)' },
-  { label: 'Active Products', value: '84', change: '+5', up: true, icon: Package, color: '#a855f7' },
-];
-
-const RECENT_ORDERS_DEFAULT = [
-  { id: '#WAR-10482', customer: 'Arjun Sharma', product: 'Midnight Oversized Tee', amount: '₹1,499', status: 'Delivered', time: '2 min ago' },
-  { id: '#WAR-10481', customer: 'Ravi Kumar', product: 'Essential White Classic', amount: '₹799', status: 'Shipped', time: '15 min ago' },
-  { id: '#WAR-10480', customer: 'Deepak Nair', product: 'Acid Wash Vintage', amount: '₹1,299', status: 'Processing', time: '32 min ago' },
-  { id: '#WAR-10479', customer: 'Karthik M', product: 'Graphic City Tee', amount: '₹999', status: 'Pending', time: '1 hr ago' },
-  { id: '#WAR-10478', customer: 'Suresh Babu', product: 'Premium Pima Cotton', amount: '₹2,199', status: 'Delivered', time: '2 hr ago' },
-];
 
 const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
   Delivered: { bg: 'rgba(34,197,94,0.12)', color: '#22c55e' },
   Shipped: { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6' },
+  Confirmed: { bg: 'rgba(99,102,241,0.12)', color: '#6366f1' },
   Processing: { bg: 'rgba(234,179,8,0.12)', color: '#eab308' },
   Pending: { bg: 'rgba(156,163,175,0.12)', color: '#9ca3af' },
   Cancelled: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444' },
+  Refunded: { bg: 'rgba(249,115,22,0.12)', color: '#f97316' },
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
@@ -46,115 +32,127 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   Pending: <AlertCircle size={12} />,
 };
 
-const TOP_PRODUCTS = [
-  { name: 'Midnight Oversized Tee', sold: 342, revenue: '₹5,12,958', stock: 45, pct: 88 },
-  { name: 'Essential White Classic', sold: 289, revenue: '₹2,30,911', stock: 120, pct: 74 },
-  { name: 'Graphic City Tee', sold: 215, revenue: '₹2,14,785', stock: 32, pct: 55 },
-  { name: 'Premium Pima Cotton', sold: 178, revenue: '₹3,91,222', stock: 18, pct: 46 },
-];
+interface DashboardStats {
+  totalRevenue: number;
+  totalOrders: number;
+  totalCustomers: number;
+  totalProducts: number;
+}
 
-const REVENUE_BARS = [
-  { day: 'Mon', value: 68 },
-  { day: 'Tue', value: 82 },
-  { day: 'Wed', value: 55 },
-  { day: 'Thu', value: 90 },
-  { day: 'Fri', value: 75 },
-  { day: 'Sat', value: 95 },
-  { day: 'Sun', value: 60 },
-];
+interface WeeklyBar {
+  label: string;
+  value: number;
+  pct: number;
+}
+
+interface StatusItem {
+  label: string;
+  count: number;
+  pct: number;
+  color: string;
+}
+
+interface TopProduct {
+  id: string;
+  name: string;
+  sold: number;
+  revenue: number;
+  pct: number;
+}
+
+interface RecentOrder {
+  id: string;
+  customer: string;
+  amount: string;
+  status: string;
+  time: string;
+}
 
 export default function AdminDashboardPage() {
   const { admin } = useAdminStore();
-  const supabase = useMemo(() => createClient(), []);
-  const [stats, setStats] = useState(STATS_DEFAULT);
-  const [recentOrders, setRecentOrders] = useState(RECENT_ORDERS_DEFAULT);
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      try {
-        const { data: ordersData } = await (supabase as any).from('orders').select('*');
-        const { data: productsData } = await (supabase as any).from('products').select('*');
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [weeklyRevenue, setWeeklyRevenue] = useState<WeeklyBar[]>([]);
+  const [statusBreakdown, setStatusBreakdown] = useState<StatusItem[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
+  const [loading, setLoading] = useState(true);
 
-        if (ordersData && ordersData.length > 0) {
-          const totalRev = ordersData.reduce((sum: number, o: any) => sum + (o.total || 0), 0);
-          const activeProdsCount = productsData?.length ?? 84;
-
-          setStats([
-            { label: 'Total Revenue', value: `₹${totalRev.toLocaleString()}`, change: '+14.2%', up: true, icon: TrendingUp, color: '#22c55e' },
-            { label: 'Total Orders', value: String(ordersData.length), change: '+9.4%', up: true, icon: ShoppingCart, color: 'var(--primary)' },
-            { label: 'New Customers', value: String(Math.max(12, Math.round(ordersData.length * 0.7))), change: '+4.1%', up: true, icon: Users, color: 'var(--accent)' },
-            { label: 'Active Products', value: String(activeProdsCount), change: '+3', up: true, icon: Package, color: '#a855f7' },
-          ]);
-
-          const recentMapped = ordersData.slice(0, 5).map((o: any) => {
-            const addr = o.delivery_address || {};
-            const st = (o.status || 'processing').toLowerCase();
-            let statusName = 'Processing';
-            if (st === 'shipped') statusName = 'Shipped';
-            else if (st === 'delivered') statusName = 'Delivered';
-            else if (st === 'cancelled') statusName = 'Cancelled';
-            else if (st === 'pending') statusName = 'Pending';
-
-            return {
-              id: `#${o.order_number || o.order_id.slice(0, 8)}`,
-              customer: addr.full_name || 'Customer',
-              product: 'WAR Essential Order',
-              amount: `₹${Number(o.total || 0).toLocaleString()}`,
-              status: statusName,
-              time: 'Just now',
-            };
-          });
-          setRecentOrders(recentMapped);
-        }
-      } catch (err) {
-        console.error('Failed to fetch dashboard metrics from Supabase', err);
+  const fetchDashboard = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/dashboard');
+      if (res.ok) {
+        const dash = await res.json();
+        setStats(dash.stats);
+        setWeeklyRevenue(dash.weeklyRevenue ?? []);
+        setStatusBreakdown(dash.statusBreakdown ?? []);
+        setTopProducts(dash.topProducts ?? []);
+        setRecentOrders(dash.recentOrders ?? []);
       }
-    };
-    loadDashboardData();
-  }, [supabase]);
+    } catch (err) {
+      console.error('Dashboard fetch error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchDashboard(); }, []);
+
+  const totalWeekRevenue = weeklyRevenue.reduce((sum, d) => sum + d.value, 0);
+
+  const STAT_CONFIGS = [
+    { key: 'totalRevenue' as const, label: 'Total Revenue', icon: TrendingUp, color: '#22c55e', format: (v: number) => `₹${v.toLocaleString()}` },
+    { key: 'totalOrders' as const, label: 'Total Orders', icon: ShoppingCart, color: 'var(--primary)', format: (v: number) => String(v) },
+    { key: 'totalCustomers' as const, label: 'Customers', icon: Users, color: 'var(--accent)', format: (v: number) => String(v) },
+    { key: 'totalProducts' as const, label: 'Active Products', icon: Package, color: '#a855f7', format: (v: number) => String(v) },
+  ];
 
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Good day, {admin?.name?.split(' ')[0] || 'Admin'} 👋
-        </h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-          Here&apos;s what&apos;s happening with WAR (Without Any Regrets) today.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Good day, {admin?.name?.split(' ')[0] || 'Admin'}
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
+            Here&apos;s what&apos;s happening with WAR today.
+          </p>
+        </div>
+        <button
+          onClick={fetchDashboard}
+          className="p-2 rounded-xl transition-all"
+          style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}
+          title="Refresh"
+        >
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <div
-              key={stat.label}
-              className="rounded-2xl p-5"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: `${stat.color}20` }}
-                >
-                  <Icon size={18} style={{ color: stat.color }} />
-                </div>
-                <span
-                  className="flex items-center gap-1 text-xs font-semibold"
-                  style={{ color: stat.up ? '#22c55e' : '#ef4444' }}
-                >
-                  {stat.up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                  {stat.change}
-                </span>
+        {STAT_CONFIGS.map(({ key, label, icon: Icon, color, format }) => (
+          <div
+            key={key}
+            className="rounded-2xl p-5"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${color}20` }}>
+                <Icon size={18} style={{ color }} />
               </div>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>{stat.label}</div>
+              <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: '#22c55e' }}>
+                <ArrowUpRight size={12} />
+                Live
+              </span>
             </div>
-          );
-        })}
+            <div className="text-2xl font-bold">
+              {loading ? '—' : stats ? format(stats[key]) : '—'}
+            </div>
+            <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>{label}</div>
+          </div>
+        ))}
       </div>
 
       {/* Charts row */}
@@ -167,62 +165,74 @@ export default function AdminDashboardPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="font-semibold">Weekly Revenue</h2>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>June 3 – June 9, 2026</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>Last 7 days</p>
             </div>
             <div className="text-right">
-              <div className="text-lg font-bold">₹82,450</div>
-              <div className="text-xs flex items-center gap-1 justify-end" style={{ color: '#22c55e' }}>
-                <ArrowUpRight size={11} /> 12.5% vs last week
-              </div>
+              <div className="text-lg font-bold">₹{totalWeekRevenue.toLocaleString()}</div>
+              <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>this week</div>
             </div>
           </div>
-          <div className="flex items-end gap-3 h-32">
-            {REVENUE_BARS.map((bar) => (
-              <div key={bar.day} className="flex-1 flex flex-col items-center gap-2">
-                <div className="w-full rounded-t-lg transition-all" style={{
-                  height: `${bar.value}%`,
-                  background: bar.day === 'Sun' ? 'var(--fg-muted)' : 'var(--primary)',
-                  opacity: bar.day === 'Sun' ? 0.4 : 1,
-                }} />
-                <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{bar.day}</span>
-              </div>
-            ))}
-          </div>
+          {loading ? (
+            <div className="flex items-center justify-center h-32" style={{ color: 'var(--fg-muted)' }}>
+              <RefreshCw size={18} className="animate-spin mr-2" /> Loading…
+            </div>
+          ) : weeklyRevenue.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-sm" style={{ color: 'var(--fg-muted)' }}>
+              No orders in the last 7 days
+            </div>
+          ) : (
+            <div className="flex items-end gap-3 h-32">
+              {weeklyRevenue.map((bar, i) => (
+                <div key={`${bar.label}-${i}`} className="flex-1 flex flex-col items-center gap-2">
+                  <div
+                    className="w-full rounded-t-lg transition-all"
+                    style={{
+                      height: `${Math.max(bar.pct, 4)}%`,
+                      background: bar.pct === 0 ? 'var(--bg-subtle)' : 'var(--primary)',
+                      opacity: bar.pct === 0 ? 0.3 : 1,
+                    }}
+                    title={`₹${bar.value.toLocaleString()}`}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{bar.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Order status donut */}
+        {/* Order status breakdown */}
         <div
           className="rounded-2xl p-6"
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
         >
           <h2 className="font-semibold mb-6">Order Status</h2>
-          <div className="space-y-4">
-            {[
-              { label: 'Delivered', count: 1240, pct: 62, color: '#22c55e' },
-              { label: 'Shipped', count: 380, pct: 19, color: '#3b82f6' },
-              { label: 'Processing', count: 260, pct: 13, color: '#eab308' },
-              { label: 'Pending', count: 120, pct: 6, color: '#9ca3af' },
-            ].map((item) => (
-              <div key={item.label}>
-                <div className="flex items-center justify-between text-xs mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ background: item.color }} />
-                    <span style={{ color: 'var(--fg-muted)' }}>{item.label}</span>
+          {loading ? (
+            <div className="flex items-center justify-center py-8" style={{ color: 'var(--fg-muted)' }}>
+              <RefreshCw size={18} className="animate-spin" />
+            </div>
+          ) : statusBreakdown.length === 0 ? (
+            <div className="text-center text-sm py-8" style={{ color: 'var(--fg-muted)' }}>No orders yet</div>
+          ) : (
+            <div className="space-y-4">
+              {statusBreakdown.map((item) => (
+                <div key={item.label}>
+                  <div className="flex items-center justify-between text-xs mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ background: item.color }} />
+                      <span style={{ color: 'var(--fg-muted)' }}>{item.label}</span>
+                    </div>
+                    <span className="font-semibold">{item.count}</span>
                   </div>
-                  <span className="font-semibold">{item.count}</span>
+                  <div className="h-1.5 rounded-full" style={{ background: 'var(--bg-subtle)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${item.pct}%`, background: item.color }} />
+                  </div>
                 </div>
-                <div className="h-1.5 rounded-full" style={{ background: 'var(--bg-subtle)' }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${item.pct}%`, background: item.color }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           <div className="mt-5 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-            <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>Total orders this month</div>
-            <div className="text-2xl font-bold mt-0.5">2,000</div>
+            <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>Total orders</div>
+            <div className="text-2xl font-bold mt-0.5">{loading ? '—' : (stats?.totalOrders ?? 0).toLocaleString()}</div>
           </div>
         </div>
       </div>
@@ -240,34 +250,42 @@ export default function AdminDashboardPage() {
               View all →
             </a>
           </div>
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {recentOrders.map((order, idx) => {
-              const style = STATUS_STYLES[order.status] || STATUS_STYLES.Processing;
-              return (
-                <div key={order.id ? `${order.id}-${idx}` : `ro-${idx}`} className="flex items-center gap-4 px-6 py-3.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold">{order.id}</span>
-                      <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{order.time}</span>
+          {loading ? (
+            <div className="flex items-center justify-center py-10" style={{ color: 'var(--fg-muted)' }}>
+              <RefreshCw size={18} className="animate-spin mr-2" /> Loading…
+            </div>
+          ) : recentOrders.length === 0 ? (
+            <div className="text-center py-10 text-sm" style={{ color: 'var(--fg-muted)' }}>No recent orders</div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {recentOrders.map((order, idx) => {
+                const style = STATUS_STYLES[order.status] || STATUS_STYLES.Processing;
+                return (
+                  <div key={`${order.id}-${idx}`} className="flex items-center gap-4 px-6 py-3.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold">{order.id}</span>
+                        <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{order.time}</span>
+                      </div>
+                      <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--fg-muted)' }}>
+                        {order.customer}
+                      </div>
                     </div>
-                    <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--fg-muted)' }}>
-                      {order.customer} · {order.product}
+                    <div className="shrink-0 text-right">
+                      <div className="text-sm font-semibold">{order.amount}</div>
+                      <span
+                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full mt-0.5"
+                        style={{ background: style.bg, color: style.color }}
+                      >
+                        {STATUS_ICONS[order.status]}
+                        {order.status}
+                      </span>
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-sm font-semibold">{order.amount}</div>
-                    <span
-                      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full mt-0.5"
-                      style={{ background: style.bg, color: style.color }}
-                    >
-                      {STATUS_ICONS[order.status]}
-                      {order.status}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Top products */}
@@ -282,32 +300,37 @@ export default function AdminDashboardPage() {
             </a>
           </div>
           <div className="px-6 py-4 space-y-5">
-            {TOP_PRODUCTS.map((p, i) => (
-              <div key={`${p.name}-${i}`}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold"
-                      style={{ background: i === 0 ? 'var(--primary)' : 'var(--bg-subtle)', color: i === 0 ? 'var(--primary-fg)' : 'var(--fg-muted)' }}
-                    >
-                      {i + 1}
-                    </span>
-                    <span className="text-xs font-medium truncate max-w-[130px]">{p.name}</span>
-                  </div>
-                  <span className="text-xs font-semibold">{p.sold} sold</span>
-                </div>
-                <div className="h-1.5 rounded-full" style={{ background: 'var(--bg-subtle)' }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${p.pct}%`, background: 'var(--primary)' }}
-                  />
-                </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>Stock: {p.stock}</span>
-                  <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>{p.revenue}</span>
-                </div>
+            {loading ? (
+              <div className="flex items-center justify-center py-8" style={{ color: 'var(--fg-muted)' }}>
+                <RefreshCw size={18} className="animate-spin" />
               </div>
-            ))}
+            ) : topProducts.length === 0 ? (
+              <div className="text-center text-sm py-8" style={{ color: 'var(--fg-muted)' }}>No sales data yet</div>
+            ) : (
+              topProducts.map((p, i) => (
+                <div key={p.id}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-5 h-5 rounded-full text-xs flex items-center justify-center font-bold"
+                        style={{ background: i === 0 ? 'var(--primary)' : 'var(--bg-subtle)', color: i === 0 ? 'var(--primary-fg)' : 'var(--fg-muted)' }}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="text-xs font-medium truncate max-w-[130px]">{p.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold">{p.sold} sold</span>
+                  </div>
+                  <div className="h-1.5 rounded-full" style={{ background: 'var(--bg-subtle)' }}>
+                    <div className="h-full rounded-full" style={{ width: `${p.pct}%`, background: 'var(--primary)' }} />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>Revenue</span>
+                    <span className="text-xs" style={{ color: 'var(--fg-muted)' }}>₹{p.revenue.toLocaleString()}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

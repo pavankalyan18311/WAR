@@ -80,7 +80,7 @@ export default function EditProductPage({ params }: { params: Promise<{ id: stri
       try {
         const { data, error } = await (supabase as any)
           .from('products')
-          .select('*, variants:product_variants(*), product_images(*)')
+          .select('*, variants:product_variants(*), product_media(*)')
           .or(`id.eq.${productId},product_id.eq.${productId},slug.eq.${productId}`)
           .single();
 

@@ -372,20 +372,15 @@ export const useAuthStore = create<AuthStore>()(
 
         let resolvedRole = 'customer';
         if (session?.user) {
-          const userEmail = (session.user.email || '').toLowerCase().trim();
-          if (userEmail === 'maladoddipavankalyan@gmail.com') {
-            resolvedRole = 'super_admin';
-          } else {
-            try {
-              const { data: profiles } = await (supabase as any)
-                .from('profiles')
-                .select('*')
-                .eq('id', session.user.id);
-              const pRole = profiles && profiles.length > 0 ? profiles[0]?.role : '';
-              resolvedRole = (pRole || session.user.app_metadata?.role || session.user.user_metadata?.role || 'customer').toLowerCase();
-            } catch (pErr) {
-              resolvedRole = (session.user.app_metadata?.role || session.user.user_metadata?.role || 'customer').toLowerCase();
-            }
+          try {
+            const { data: profile } = await (supabase as any)
+              .from('profiles')
+              .select('role')
+              .eq('id', session.user.id)
+              .single();
+            resolvedRole = ((profile as any)?.role || 'customer').toLowerCase();
+          } catch {
+            resolvedRole = 'customer';
           }
 
           // Restore user database cart if session is active

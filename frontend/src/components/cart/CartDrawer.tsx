@@ -5,10 +5,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { X, ShoppingBag, Plus, Minus, Trash2, ArrowRight, Tag } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
+import { useAuthStore } from '@/store/authStore';
 import { formatPrice } from '@/lib/utils';
 
 export default function CartDrawer() {
   const { items, isOpen, closeCart, removeItem, updateQuantity, getSummary, couponCode, applyCoupon, removeCoupon } = useCartStore();
+  const user = useAuthStore((s) => s.user);
   const [mounted, setMounted] = useState(false);
   const [inputCoupon, setInputCoupon] = useState('');
   const [couponError, setCouponError] = useState('');
@@ -265,7 +267,7 @@ export default function CartDrawer() {
               </div>
             </div>
 
-            <Link href="/checkout" onClick={closeCart}
+            <Link href={user ? "/checkout" : "/auth/login?redirect=/checkout"} onClick={closeCart}
               className="w-full py-3.5 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
               style={{ background: 'var(--primary)', color: 'var(--primary-fg)', boxShadow: 'var(--shadow-md)' }}>
               Proceed to Checkout <ArrowRight size={15} />

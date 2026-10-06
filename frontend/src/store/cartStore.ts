@@ -13,6 +13,7 @@ interface CartStore {
   isOpen: boolean;
   couponCode: string;
   discount: number;
+  discountType: 'percentage' | 'flat' | 'free_shipping' | null;
   userId: string | null;
   syncing: boolean;
 
@@ -24,7 +25,7 @@ interface CartStore {
   toggleCart: () => void;
   openCart: () => void;
   closeCart: () => void;
-  applyCoupon: (code: string, discountAmount: number) => void;
+  applyCoupon: (code: string, discountAmount: number, discountType?: 'percentage' | 'flat' | 'free_shipping') => void;
   removeCoupon: () => void;
   getSummary: () => CartSummary;
   getTotalItems: () => number;
@@ -39,6 +40,7 @@ export const useCartStore = create<CartStore>()(
       isOpen: false,
       couponCode: '',
       discount: 0,
+      discountType: null,
       userId: null,
       syncing: false,
 
@@ -130,7 +132,7 @@ export const useCartStore = create<CartStore>()(
 
       clearCart: () => {
         const { userId } = get();
-        set({ items: [], couponCode: '', discount: 0 });
+        set({ items: [], couponCode: '', discount: 0, discountType: null });
 
         if (userId) {
           clearCartInDb(userId).catch((err) =>
@@ -143,28 +145,19 @@ export const useCartStore = create<CartStore>()(
       openCart: () => set({ isOpen: true }),
       closeCart: () => set({ isOpen: false }),
 
-      applyCoupon: (code, discountAmount) =>
-        set({ couponCode: code.toUpperCase().trim(), discount: discountAmount }),
-      removeCoupon: () => set({ couponCode: '', discount: 0 }),
+      applyCoupon: (code, discountAmount, discountType) =>
+        set({
+          couponCode: code.toUpperCase().trim(),
+          discount: discountAmount,
+          discountType: discountType ?? null,
+        }),
+      removeCoupon: () => set({ couponCode: '', discount: 0, discountType: null }),
 
       getSummary: () => {
-        const { items, couponCode } = get();
+        const { items, discount, discountType } = get();
         const subtotal = items.reduce((sum, i) => sum + (Number(i.price) || 0) * i.quantity, 0);
-        let shipping = subtotal >= 999 ? 0 : 99;
-        let discount = 0;
-
-        const code = couponCode.toUpperCase().trim();
-        if (code === 'WAR10') {
-          discount = Math.round(subtotal * 0.10);
-        } else if (code === 'WELCOME20') {
-          discount = Math.round(subtotal * 0.20);
-        } else if (code === 'FREESHIP') {
-          shipping = 0;
-          discount = 0;
-        } else if (get().discount > 0) {
-          discount = get().discount;
-        }
-
+        const isFreeShipping = discountType === 'free_shipping';
+        const shipping = subtotal >= 999 || isFreeShipping ? 0 : 99;
         const tax = 0;
         const total = Math.max(0, subtotal - discount + shipping + tax);
         return { subtotal, discount, shipping, tax, total };
@@ -203,7 +196,7 @@ export const useCartStore = create<CartStore>()(
       },
 
       resetUserCart: () => {
-        set({ userId: null, items: [], couponCode: '', discount: 0 });
+        set({ userId: null, items: [], couponCode: '', discount: 0, discountType: null });
       },
     }),
     { name: 'war-cart' }
