@@ -58,13 +58,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       try {
         const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
+        // Use getSession (cached, no network round-trip) to avoid hanging on stale tokens
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user ?? null;
 
         if (user) {
-          const userEmail = (user.email || '').toLowerCase().trim();
-          const userMeta = user.user_metadata || {};
-          const appMeta = user.app_metadata || {};
-
           let profileRole = '';
           try {
             const { data: profile } = await (supabase as any)
@@ -74,11 +72,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               .single();
             if (profile) profileRole = (profile as any).role || '';
           } catch {
-            // ignore
+            // ignore — treat as no role
           }
 
           const role = profileRole.toLowerCase();
-
           if (['admin', 'super_admin', 'manager'].includes(role)) {
             setIsDenied(false);
             setRoleChecked(true);
@@ -93,7 +90,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         console.error('Role check error:', err);
       }
 
-      // If store is authenticated (mock or persistent), allow
+      // No valid Supabase session — fall back to admin store state
       if (isAuthenticated) {
         setIsDenied(false);
       } else {

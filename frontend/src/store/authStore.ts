@@ -429,6 +429,15 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: "auth-storage",
+      // Never persist loading — it should always start as false
+      partialize: (state) => ({
+        user: state.user,
+        session: state.session,
+        isAuthenticated: state.isAuthenticated,
+        role: state.role,
+        flowStage: state.flowStage,
+        pendingRegistration: state.pendingRegistration,
+      }),
     }
   )
 );

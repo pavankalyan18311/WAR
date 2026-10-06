@@ -7,6 +7,7 @@ import ChatWidget from '@/components/chat/ChatWidget';
 import PremiumAuthModal from '@/components/auth/PremiumAuthModal';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import PageTransition from '@/components/ui/PageTransition';
+import AuthInitializer from '@/components/auth/AuthInitializer';
 
 export const metadata: Metadata = {
   title: 'WAR — Premium Oversized T-Shirts',
@@ -28,6 +29,7 @@ export default function RootLayout({
     >
       <body className="min-h-screen flex flex-col font-sans h-full" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
         <ThemeProvider>
+          <AuthInitializer />
           <div className="min-h-screen flex flex-col w-full flex-1">
             <Header />
             <main className="flex-1 w-full flex flex-col">
