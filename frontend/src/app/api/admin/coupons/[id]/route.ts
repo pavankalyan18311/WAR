@@ -1,58 +1,54 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/apiAuth';
+import { getServiceClient } from '@/lib/admin/routeHelpers';
+import { CouponInputError, parseCouponInput } from '@/lib/admin/coupons';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+type Ctx = { params: Promise<{ id: string }> };
 
-function getAdminClient() {
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  }) as any;
-}
+/**
+ * PATCH /api/admin/coupons/[id] — update a coupon (admin only).
+ * Body { is_active } alone switches it on/off; otherwise the full form is validated like create.
+ */
+export async function PATCH(request: Request, { params }: Ctx) {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
 
-/** PATCH /api/admin/coupons/[id] — update a coupon */
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+  const { id } = await params;
+  const body = await request.json();
+  const onlyToggle = Object.keys(body).length === 1 && typeof body.is_active === 'boolean';
+
   try {
-    const body = await request.json();
-    const supabase = getAdminClient();
-
-    const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    const allowed = [
-      'code', 'description', 'coupon_type', 'discount_type', 'discount_value',
-      'min_order_amount', 'max_discount_amount', 'max_uses', 'max_uses_per_user',
-      'first_order_only', 'inactive_days_threshold', 'is_active', 'valid_from', 'valid_to',
-    ];
-    for (const key of allowed) {
-      if (key in body) updatePayload[key] = body[key];
-    }
-    if (updatePayload.code) {
-      updatePayload.code = String(updatePayload.code).toUpperCase().trim();
-    }
-
-    const { data, error } = await supabase
+    const patch = onlyToggle ? { is_active: body.is_active } : parseCouponInput(body);
+    const { data, error } = await getServiceClient()
       .from('coupons')
-      .update(updatePayload)
-      .eq('id', params.id)
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
       .select()
       .single();
-
-    if (error) throw error;
+    if (error) {
+      if (String(error.code) === '23505') {
+        return NextResponse.json({ error: 'Another coupon already uses this code.' }, { status: 409 });
+      }
+      console.error('/api/admin/coupons PATCH error:', error);
+      return NextResponse.json({ error: 'Could not update the coupon.' }, { status: 500 });
+    }
     return NextResponse.json({ coupon: data });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    if (err instanceof CouponInputError) return NextResponse.json({ error: err.message }, { status: 400 });
+    throw err;
   }
 }
 
-/** DELETE /api/admin/coupons/[id] — delete a coupon */
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
-  try {
-    const supabase = getAdminClient();
-    const { error } = await supabase.from('coupons').delete().eq('id', params.id);
-    if (error) throw error;
-    return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
+/** DELETE /api/admin/coupons/[id] — delete a coupon (admin only). */
+export async function DELETE(_request: Request, { params }: Ctx) {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
+
+  const { id } = await params;
+  const { error } = await getServiceClient().from('coupons').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: 'Could not delete the coupon.' }, { status: 500 });
+  return NextResponse.json({ success: true });
 }

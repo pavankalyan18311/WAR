@@ -54,11 +54,16 @@ export interface ShiprocketOrderResult {
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
+/** Fake sandbox responses are allowed only in local development, never in production. */
+function isSandbox(): boolean {
+  return process.env.NODE_ENV !== 'production';
+}
+
 /**
  * Obtain Bearer Token from Shiprocket API (or Dev Sandbox token)
  */
 export async function getShiprocketToken(): Promise<string | null> {
-  const isDevMode = process.env.NODE_ENV !== 'production' || process.env.SHIPROCKET_SANDBOX === 'true';
+  const isDevMode = isSandbox();
   const email = process.env.SHIPROCKET_EMAIL;
   const password = process.env.SHIPROCKET_PASSWORD;
 
@@ -119,10 +124,13 @@ export async function checkPincodeServiceability(
     return { success: false, serviceable: false, error: 'Please enter a valid 6-digit Indian pincode' };
   }
 
-  const isDevMode = process.env.NODE_ENV !== 'production' || process.env.SHIPROCKET_SANDBOX === 'true';
+  const isDevMode = isSandbox();
   const token = await getShiprocketToken();
 
-  if (!token || token === 'DEV_SANDBOX_TOKEN') {
+  if (!token) {
+    return { success: false, serviceable: false, error: 'Delivery check is unavailable right now. Please try again later.' };
+  }
+  if (token === 'DEV_SANDBOX_TOKEN') {
     // Sandbox / Dev Mode Intelligent Pincode Lookup
     const prefix = cleanPincode.slice(0, 2);
     const metroPrefixes = ['11', '40', '56', '60', '70', '50', '38', '41'];
@@ -140,7 +148,11 @@ export async function checkPincodeServiceability(
   }
 
   try {
-    const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE || '560057';
+    const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE;
+    if (!pickupPincode) {
+      console.error('[Shiprocket] SHIPROCKET_PICKUP_PINCODE is not set.');
+      return { success: false, serviceable: false, error: 'Delivery check is unavailable right now. Please try again later.' };
+    }
     const query = new URLSearchParams({
       pickup_postcode: pickupPincode,
       delivery_postcode: cleanPincode,
@@ -196,20 +208,18 @@ export async function checkPincodeServiceability(
  * Create Order in Shiprocket Logistics Engine & Obtain AWB / Tracking Code
  */
 export async function createShiprocketOrder(payload: CreateShipmentPayload): Promise<ShiprocketOrderResult> {
-  const isDevMode = process.env.NODE_ENV !== 'production' || process.env.SHIPROCKET_SANDBOX === 'true';
+  const isDevMode = isSandbox();
   const token = await getShiprocketToken();
 
-  if (!token || token === 'DEV_SANDBOX_TOKEN') {
-    // Sandbox / Dev Mode Mock Order Creation
-    const mockAwb = `SRK-DEV-${Math.floor(100000000 + Math.random() * 900000000)}`;
-    console.log('[Shiprocket Dev Sandbox] Created Mock Order & AWB:', mockAwb, 'for order:', payload.order_id);
-    return {
-      success: true,
-      shipment_id: Math.floor(100000 + Math.random() * 900000),
-      order_id: Math.floor(100000 + Math.random() * 900000),
-      awb_code: mockAwb,
-      courier_name: payload.payment_method === 'COD' ? 'Delhivery Surface' : 'BlueDart Air',
-    };
+  if (!token) {
+    return { success: false, error: 'Shiprocket is not configured or login failed.' };
+  }
+  if (token === 'DEV_SANDBOX_TOKEN') {
+    // Development simulation: like real Shiprocket, creating the order gives a shipment id but no AWB yet
+    // (the courier/AWB, pickup and label come from the next calls).
+    const shipmentId = Math.floor(100000 + Math.random() * 900000);
+    console.log('[Shiprocket Dev Sandbox] Created test shipment', shipmentId, 'for order:', payload.order_id);
+    return { success: true, shipment_id: shipmentId, order_id: Math.floor(100000 + Math.random() * 900000) };
   }
 
   try {
@@ -232,18 +242,66 @@ export async function createShiprocketOrder(payload: CreateShipmentPayload): Pro
       success: true,
       shipment_id: data.shipment_id,
       order_id: data.order_id,
-      awb_code: data.awb_code || `AWB-${data.shipment_id}`,
-      courier_name: data.courier_name || 'Shiprocket Partner',
+      awb_code: data.awb_code || undefined,
+      courier_name: data.courier_name || undefined,
     };
   } catch (err: any) {
     console.error('[Shiprocket Create Order Exception]:', err);
-    if (isDevMode) {
-      return {
-        success: true,
-        awb_code: `SRK-DEV-${Math.floor(100000000 + Math.random() * 900000000)}`,
-        courier_name: 'Delhivery Express',
-      };
-    }
     return { success: false, error: err.message || 'Shiprocket API error' };
   }
+}
+
+// ─── After the order is created: courier (AWB), pickup and label ─────────────
+
+type CallResult = { ok: true; data: any } | { ok: false; error: string; data?: any };
+
+/** POST to Shiprocket with the API token. Never throws. 'sandbox' when running without credentials in development. */
+async function shiprocketPost(path: string, body: unknown): Promise<CallResult | 'sandbox'> {
+  const token = await getShiprocketToken();
+  if (!token) return { ok: false, error: 'Shiprocket is not configured or login failed.' };
+  if (token === 'DEV_SANDBOX_TOKEN') return 'sandbox';
+  try {
+    const res = await fetch(`https://apiv2.shiprocket.in/v1/external${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.message || `Shiprocket error ${res.status}`, data };
+    return { ok: true, data };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Shiprocket API error' };
+  }
+}
+
+/** Lets Shiprocket choose the courier (per your courier rules in Shiprocket) and returns the AWB / tracking number. */
+export async function assignAwb(shipmentId: string): Promise<{ success: boolean; awb_code?: string; courier_name?: string; error?: string }> {
+  const r = await shiprocketPost('/courier/assign/awb', { shipment_id: shipmentId });
+  if (r === 'sandbox') {
+    return { success: true, awb_code: `SRK-DEV-${Math.floor(100000000 + Math.random() * 900000000)}`, courier_name: 'Delhivery Surface (test)' };
+  }
+  if (!r.ok) return { success: false, error: r.error };
+  const d = r.data?.response?.data ?? {};
+  if (r.data?.awb_assign_status !== 1 || !d.awb_code) {
+    return { success: false, error: d.awb_assign_error || r.data?.message || 'No courier could be assigned.' };
+  }
+  return { success: true, awb_code: String(d.awb_code), courier_name: d.courier_name };
+}
+
+/** Asks the courier to collect the parcel from your pickup address. */
+export async function schedulePickup(shipmentId: string): Promise<{ success: boolean; error?: string }> {
+  const r = await shiprocketPost('/courier/generate/pickup', { shipment_id: [shipmentId] });
+  if (r === 'sandbox') return { success: true };
+  if (!r.ok) return { success: false, error: r.error };
+  return r.data?.pickup_status === 1 ? { success: true } : { success: false, error: r.data?.message || 'Pickup could not be scheduled.' };
+}
+
+/** Creates the shipping label (PDF) to print and stick on the parcel. */
+export async function generateLabel(shipmentId: string): Promise<{ success: boolean; label_url?: string; error?: string }> {
+  const r = await shiprocketPost('/courier/generate/label', { shipment_id: [shipmentId] });
+  if (r === 'sandbox') return { success: true, label_url: `/api/shipping/dev-label/${shipmentId}` }; // printable sample label
+  if (!r.ok) return { success: false, error: r.error };
+  return r.data?.label_created === 1 && r.data?.label_url
+    ? { success: true, label_url: r.data.label_url }
+    : { success: false, error: r.data?.message || 'Label could not be generated.' };
 }

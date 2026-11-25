@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('Product Browsing', () => {
   test('products page loads and shows product grid', async ({ page }) => {
     await page.goto('/products')
-    await expect(page.getByText(/all products/i)).toBeVisible()
+    await expect(page.getByRole('heading', { name: /all products/i })).toBeVisible()
     const productCards = page.locator('[data-testid="product-card"]')
     await expect(productCards.first()).toBeVisible()
   })
@@ -55,13 +55,9 @@ test.describe('Product Browsing', () => {
   })
 
   test('search overlay can be opened', async ({ page }) => {
-    await page.goto('/')
-    // Click the search icon in header
-    const searchTrigger = page.getByLabel(/search/i).first()
-    if (await searchTrigger.isVisible()) {
-      await searchTrigger.click()
-      const searchInput = page.getByPlaceholder(/search/i)
-      await expect(searchInput).toBeFocused()
-    }
+    await page.goto('/', { waitUntil: 'networkidle' })
+    // Click the search icon in the header once the page is interactive
+    await page.getByTestId('header-search-trigger').click()
+    await expect(page.getByTestId('header-search-input')).toBeFocused()
   })
 })

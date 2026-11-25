@@ -3,70 +3,11 @@
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Search, PackageSearch, CheckCircle2, Truck, Box, ShoppingBag, ArrowRight, RefreshCw, ExternalLink } from 'lucide-react';
+import { ArrowRight, HelpCircle, Lock, MapPin, PackageSearch, Search } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
-import type { OrderStatus } from '@/types';
-
-const STATUS_STEPS: { key: string; label: string; icon: React.ElementType }[] = [
-  { key: 'pending', label: 'Ordered', icon: ShoppingBag },
-  { key: 'confirmed', label: 'Confirmed', icon: CheckCircle2 },
-  { key: 'processing', label: 'Packed', icon: Box },
-  { key: 'shipped', label: 'Shipped', icon: Truck },
-  { key: 'delivered', label: 'Delivered', icon: CheckCircle2 },
-];
-
-const STATUS_ORDER = ['pending', 'confirmed', 'processing', 'shipped', 'delivered'];
-
-function TrackingTimeline({ status }: { status: string }) {
-  const isTerminal = status === 'cancelled' || status === 'refunded';
-  const currentIdx = Math.max(0, STATUS_ORDER.indexOf(status));
-
-  if (isTerminal) {
-    return (
-      <div className="mt-5 rounded-xl p-3 text-sm font-semibold"
-        style={{
-          background: status === 'cancelled' ? 'rgba(239,68,68,0.12)' : 'rgba(107,114,128,0.12)',
-          color: status === 'cancelled' ? '#dc2626' : '#6b7280',
-        }}>
-        Order {status === 'cancelled' ? 'Cancelled' : 'Refunded'}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-6">
-      <p className="text-[10px] font-black uppercase tracking-widest mb-4" style={{ color: 'var(--fg-muted)' }}>
-        Shiprocket Tracking Timeline
-      </p>
-      <div className="flex items-start gap-0">
-        {STATUS_STEPS.map((step, i) => {
-          const done = i <= currentIdx;
-          const active = i === currentIdx;
-          const isLast = i === STATUS_STEPS.length - 1;
-          const Icon = step.icon;
-          return (
-            <div key={step.key} className="flex-1 flex flex-col items-center relative">
-              {!isLast && (
-                <div className="absolute top-4 left-1/2 w-full h-0.5"
-                  style={{ background: done && i < currentIdx ? 'var(--primary)' : 'var(--bg-elevated)' }} />
-              )}
-              <div className="w-8 h-8 rounded-full flex items-center justify-center z-10"
-                style={{
-                  background: done ? 'var(--primary)' : 'var(--bg-elevated)',
-                  border: `2px solid ${active ? 'var(--primary)' : done ? 'var(--primary)' : 'var(--border)'}`,
-                }}>
-                <Icon size={13} style={{ color: done ? 'var(--primary-fg)' : 'var(--fg-subtle)' }} />
-              </div>
-              <p className="text-[10px] font-semibold mt-1.5 text-center" style={{ color: done ? 'var(--fg)' : 'var(--fg-subtle)' }}>
-                {step.label}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+import { orderReference } from '@/lib/checkout/client';
+import { trackingQuery } from '@/lib/tracking';
+import { Meta, OrderTimeline, StatusChip, TrackingInfo, paymentLabel } from '@/components/account/AccountShell';
 
 function TrackOrderContent() {
   const searchParams = useSearchParams();
@@ -75,6 +16,7 @@ function TrackOrderContent() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(initial.length > 0);
   const [order, setOrder] = useState<any | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const fetchLiveOrder = async (searchStr: string) => {
     const clean = searchStr.trim();
@@ -82,7 +24,9 @@ function TrackOrderContent() {
     setLoading(true);
     setSearched(true);
     try {
-      const res = await fetch(`/api/orders?order_id=${encodeURIComponent(clean)}`);
+      const q = trackingQuery(clean)!;
+      const res = await fetch(`/api/orders?${q.param}=${encodeURIComponent(q.value)}`);
+      setNeedsLogin(res.status === 401);
       if (res.ok) {
         const data = await res.json();
         if (data.orders && data.orders.length > 0) {
@@ -107,145 +51,113 @@ function TrackOrderContent() {
     }
   }, [initial]);
 
+  const addr = order?.shipping_address;
+
   return (
-    <div className="max-w-3xl mx-auto px-5 sm:px-8 py-8 space-y-5">
-      <section className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-        <label className="block text-xs font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--fg-muted)' }}>
-          Order ID or Tracking Number
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Enter Order ID (e.g. ord-1741234 or WAR-12345)"
-            className="flex-1 px-3.5 py-3 rounded-xl text-sm outline-none"
-            style={{ background: 'var(--bg-elevated)', border: '1.5px solid var(--border)', color: 'var(--fg)' }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                fetchLiveOrder(query);
-              }
-            }}
-          />
-          <button
-            onClick={() => fetchLiveOrder(query)}
-            disabled={loading}
-            className="px-5 py-3 rounded-xl text-sm font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-            style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-            {loading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
-            {loading ? 'Tracking…' : 'Track'}
+    <div className="max-w-3xl mx-auto w-full px-4 sm:px-8 pb-20 space-y-5">
+      {/* Search */}
+      <form onSubmit={(e) => { e.preventDefault(); fetchLiveOrder(query); }} className="ui-card p-5 sm:p-7">
+        <label htmlFor="order-ref" className="block text-base font-bold mb-3" style={{ color: 'var(--fg)' }}>Order reference</label>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1 min-w-0">
+            <PackageSearch size={20} className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--fg-subtle)' }} />
+            <input
+              id="order-ref"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="WAR-1A2B3C4D or AWB no."
+              className="ui-input w-full !pl-12 !py-3.5 text-base font-semibold tracking-wide"
+              autoComplete="off"
+            />
+          </div>
+          <button type="submit" disabled={loading} className="ui-btn !py-3.5 sm:!px-7">
+            <Search size={17} /> {loading ? 'Tracking…' : 'Track'}
           </button>
         </div>
-        <p className="text-[11px] mt-2" style={{ color: 'var(--fg-subtle)' }}>
-          Tip: You can find your Order ID or tracking code in your order confirmation screen and My Orders page.
+        <p className="text-sm mt-3" style={{ color: 'var(--fg-muted)' }}>
+          You&apos;ll find it on your order confirmation, in your email and under My orders.
         </p>
-      </section>
+      </form>
 
-      {searched && !loading && !order && (
-        <section className="rounded-2xl p-8 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <PackageSearch size={32} className="mx-auto mb-3" style={{ color: 'var(--fg-subtle)' }} />
-          <p className="text-lg font-bold" style={{ color: 'var(--fg)' }}>Order not found</p>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-            We couldn't find an order matching "{query}". Please check the ID and try again.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2 justify-center">
-            <Link href="/account/orders" className="px-4 py-2 rounded-lg text-xs font-bold"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
-              My Orders
-            </Link>
-            <Link href="/support" className="px-4 py-2 rounded-lg text-xs font-bold"
-              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              Contact Support
-            </Link>
-          </div>
-        </section>
+      {loading && <div className="h-56 skeleton rounded-2xl" />}
+
+      {needsLogin && !loading && (
+        <div className="ui-card py-10 px-6 text-center">
+          <span className="mx-auto mb-4 w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'var(--info-soft)', color: 'var(--info)' }}>
+            <Lock size={24} />
+          </span>
+          <h2 className="ui-heading text-2xl mb-2" style={{ color: 'var(--fg)' }}>Please sign in to track your order</h2>
+          <p className="text-[15px] max-w-md mx-auto mb-6" style={{ color: 'var(--fg-muted)' }}>For your privacy, order details are only shown to the account that placed them.</p>
+          <Link href={`/auth/login?redirect=${encodeURIComponent(`/track-order?order=${query}`)}`} className="ui-btn">
+            Sign in <ArrowRight size={16} />
+          </Link>
+        </div>
       )}
 
-      {order && (
-        <section className="rounded-2xl p-5 sm:p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {searched && !loading && !order && !needsLogin && (
+        <div className="ui-card py-10 px-6 text-center">
+          <span className="mx-auto mb-4 w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+            <PackageSearch size={24} />
+          </span>
+          <h2 className="ui-heading text-2xl mb-2" style={{ color: 'var(--fg)' }}>Order not found</h2>
+          <p className="text-[15px] max-w-md mx-auto mb-6" style={{ color: 'var(--fg-muted)' }}>
+            We couldn&apos;t find an order matching &ldquo;{query}&rdquo;. Please check the reference and try again.
+          </p>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <Link href="/account/orders" className="ui-btn-ghost">My orders</Link>
+            <Link href="/contact" className="ui-btn">Contact support</Link>
+          </div>
+        </div>
+      )}
+
+      {order && !loading && (
+        <section className="ui-card overflow-hidden">
+          <div className="px-5 sm:px-7 pt-5 sm:pt-6 pb-5 flex flex-wrap items-center justify-between gap-3 border-b" style={{ borderColor: 'var(--border)' }}>
             <div>
-              <p className="text-xs font-black tracking-widest uppercase font-mono" style={{ color: 'var(--fg)' }}>
-                Order #{order.id?.slice(0, 8)}
+              <p className="text-sm font-semibold mb-1" style={{ color: 'var(--brand)' }}>
+                Placed {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>
-                Placed on {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-              </p>
+              <p className="ui-heading text-2xl sm:text-3xl leading-tight" style={{ color: 'var(--fg)' }}>{orderReference(order.id)}</p>
             </div>
-            <span className="text-xs font-bold px-3 py-1.5 rounded-full w-fit uppercase tracking-wider"
-              style={{
-                background:
-                  order.status === 'delivered' ? 'rgba(34,197,94,0.12)' :
-                    order.status === 'shipped' ? 'rgba(6,182,212,0.12)' :
-                      order.status === 'confirmed' ? 'rgba(59,130,246,0.12)' :
-                        order.status === 'cancelled' ? 'rgba(239,68,68,0.12)' : 'rgba(234,179,8,0.12)',
-                color:
-                  order.status === 'delivered' ? '#16a34a' :
-                    order.status === 'shipped' ? '#0891b2' :
-                      order.status === 'confirmed' ? '#2563eb' :
-                        order.status === 'cancelled' ? '#dc2626' : '#ca8a04',
-              }}>
-              {order.status.replace('_', ' ')}
-            </span>
+            <StatusChip status={order.status} />
           </div>
 
-          {/* Tracking Number / Shiprocket AWB Banner */}
-          {order.tracking_number && (
-            <div className="mt-4 p-3.5 rounded-xl flex items-center justify-between text-xs font-semibold"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-              <div>
-                <span style={{ color: 'var(--fg-muted)' }}>Shiprocket AWB / Tracking Code: </span>
-                <span className="font-mono font-bold" style={{ color: 'var(--accent)' }}>{order.tracking_number}</span>
+          <div className="px-5 sm:px-7 py-7 border-b" style={{ borderColor: 'var(--border)' }}>
+            <OrderTimeline status={order.status} placedAt={order.created_at} updatedAt={order.updated_at} />
+            {(order.tracking_number || order.courier_name) && (
+              <div className="mt-6">
+                <TrackingInfo courier={order.courier_name} awb={order.tracking_number} />
               </div>
-              <span className="text-[11px] px-2 py-0.5 rounded font-bold uppercase" style={{ background: 'rgba(34, 197, 94, 0.12)', color: '#22c55e' }}>
-                Shiprocket Verified
-              </span>
+            )}
+          </div>
+
+          {addr && (
+            <div className="px-5 sm:px-7 py-6 grid sm:grid-cols-2 gap-6 border-b" style={{ borderColor: 'var(--border)' }}>
+              <div>
+                <p className="text-base font-bold mb-2 flex items-center gap-2" style={{ color: 'var(--fg)' }}>
+                  <MapPin size={17} style={{ color: 'var(--brand)' }} /> Delivering to
+                </p>
+                <p className="text-[15px] font-semibold" style={{ color: 'var(--fg)' }}>{addr.full_name}</p>
+                <p className="text-sm mt-1 leading-relaxed" style={{ color: 'var(--fg-muted)' }}>
+                  {addr.address_line_1}<br />
+                  {addr.city}, {addr.state} — {addr.pincode}
+                </p>
+                {addr.phone && <p className="text-sm mt-2" style={{ color: 'var(--fg-muted)' }}>Phone {addr.phone}</p>}
+              </div>
+              <div className="ui-card-soft p-4 grid grid-cols-2 gap-4 content-start">
+                <Meta label="Items">{order.order_items?.length || 0}</Meta>
+                <Meta label="Total"><span className="text-base font-extrabold">{formatPrice(order.total)}</span></Meta>
+                <div className="col-span-2">
+                  <Meta label="Payment">{paymentLabel(order)} <span className="capitalize font-medium" style={{ color: 'var(--fg-muted)' }}>· {order.payment_status}</span></Meta>
+                </div>
+              </div>
             </div>
           )}
 
-          <TrackingTimeline status={order.status} />
-
-          <div className="mt-6 grid sm:grid-cols-2 gap-4 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
-            <div>
-              <p className="text-[10px] font-black tracking-widest uppercase mb-2" style={{ color: 'var(--fg-muted)' }}>
-                Delivery Address
-              </p>
-              <p className="text-sm font-semibold" style={{ color: 'var(--fg)' }}>{order.shipping_address?.full_name}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>{order.shipping_address?.address_line_1}</p>
-              <p className="text-xs" style={{ color: 'var(--fg-muted)' }}>
-                {order.shipping_address?.city}, {order.shipping_address?.state} - {order.shipping_address?.pincode}
-              </p>
-              <p className="text-xs mt-1 font-semibold" style={{ color: 'var(--fg-subtle)' }}>Phone: {order.shipping_address?.phone}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-black tracking-widest uppercase mb-2" style={{ color: 'var(--fg-muted)' }}>
-                Order Details
-              </p>
-              <div className="text-xs space-y-1.5">
-                <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
-                  <span>Items</span>
-                  <span className="font-semibold" style={{ color: 'var(--fg)' }}>{order.order_items?.length || 0}</span>
-                </div>
-                <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
-                  <span>Total Amount</span>
-                  <span className="font-bold" style={{ color: 'var(--fg)' }}>{formatPrice(order.total)}</span>
-                </div>
-                <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
-                  <span>Payment Method</span>
-                  <span className="uppercase font-semibold">{order.payment_method} ({order.payment_status})</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-2">
-            <Link href="/account/orders" className="px-4 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
-              View All Orders
-            </Link>
-            <Link href="/support" className="px-4 py-2.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5"
-              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              Need Help <ArrowRight size={12} />
+          <div className="px-5 sm:px-7 py-4 flex flex-wrap items-center justify-between gap-3" style={{ background: 'var(--surface-2)' }}>
+            <Link href="/account/orders" className="ui-link text-sm inline-flex items-center gap-1.5">View all orders <ArrowRight size={14} /></Link>
+            <Link href="/contact" className="text-sm font-semibold inline-flex items-center gap-1.5 hover:text-[var(--brand)]" style={{ color: 'var(--fg-muted)' }}>
+              <HelpCircle size={15} /> Need help
             </Link>
           </div>
         </section>
@@ -256,25 +168,18 @@ function TrackOrderContent() {
 
 export default function TrackOrderPage() {
   return (
-    <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-3xl mx-auto px-5 sm:px-8 py-12">
-          <p className="text-xs font-bold tracking-[0.3em] uppercase mb-2" style={{ color: 'var(--accent)' }}>Order Tracking</p>
-          <h1 className="text-3xl sm:text-4xl font-black" style={{ color: 'var(--fg)' }}>Track Your Order</h1>
-          <p className="text-sm mt-2" style={{ color: 'var(--fg-muted)' }}>
-            Enter your order reference ID to view real-time Shiprocket courier tracking status.
-          </p>
-        </div>
-      </div>
+    <div className="w-full ui-page min-h-[70vh]">
+      <header className="max-w-3xl mx-auto w-full px-4 sm:px-8 pt-10 sm:pt-16 pb-6 sm:pb-8">
+        <p className="text-sm font-semibold mb-1.5" style={{ color: 'var(--brand)' }}>Order tracking</p>
+        <h1 className="ui-heading leading-tight" style={{ fontSize: 'clamp(2rem, 5vw, 3rem)', color: 'var(--fg)' }}>Where&apos;s my order?</h1>
+        <p className="text-[15px] mt-2 max-w-md" style={{ color: 'var(--fg-muted)' }}>
+          Enter your order reference to see exactly where your parcel is — from packing to your door.
+        </p>
+      </header>
 
-      <Suspense fallback={
-        <div className="max-w-3xl mx-auto px-5 py-16 text-center">
-          <RefreshCw size={24} className="animate-spin mx-auto mb-2" style={{ color: 'var(--accent)' }} />
-          <p className="text-xs font-bold" style={{ color: 'var(--fg-muted)' }}>Loading tracking system…</p>
-        </div>
-      }>
+      <Suspense fallback={<div className="max-w-3xl mx-auto w-full px-4 sm:px-8"><div className="h-36 skeleton rounded-2xl" /></div>}>
         <TrackOrderContent />
       </Suspense>
-    </main>
+    </div>
   );
 }

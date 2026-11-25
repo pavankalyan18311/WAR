@@ -1,37 +1,41 @@
+import Link from 'next/link';
 import { LegalPage, Section } from '@/components/ui/LegalPage';
+import { storePolicy as p } from '@/lib/storePolicy';
 
 export default function RefundPolicyPage() {
   return (
-    <LegalPage title="Refund & Return Policy" lastUpdated="June 12, 2026">
-      <Section title="7-Day Return Policy">
-        <p>We offer a hassle-free 7-day return window from the date of delivery. If you're not satisfied with your purchase for any reason, you can initiate a return from your account dashboard.</p>
+    <LegalPage title="Cancellation, Return & Refund Policy" lastUpdated={p.lastUpdated}>
+      <Section title="Cancelling an Order">
+        <p>You can cancel an order — or individual items in it — any time before it is dispatched, from <strong>My Account → My Orders</strong>.</p>
+        <p>For online payments, the refund is started automatically and reaches your original payment method within {p.refundDays}. Cash on Delivery orders are simply cancelled; nothing is charged.</p>
+        <p>Once an order has been dispatched it can no longer be cancelled, but you can return it after delivery (see below).</p>
       </Section>
-      <Section title="Eligibility for Returns">
-        <p>To be eligible for a return, items must be:</p>
+
+      <Section title={`${p.returnDays}-Day Returns & Size Exchanges`}>
+        <p>Not happy with your purchase or need a different size? You can request a return or size exchange within <strong>{p.returnDays} days of delivery</strong>.</p>
+        <p>To be eligible, the item must be:</p>
         <ul className="list-disc pl-5 space-y-1">
-          <li>In original, unworn condition with all tags attached</li>
-          <li>In the original packaging (or similar protective packaging)</li>
-          <li>Not washed, ironed, or dry-cleaned</li>
-          <li>Free from stains, odours, or signs of wear</li>
+          <li>Unworn, unwashed and unaltered, with all original tags attached</li>
+          <li>Free from stains, perfume, odours or other signs of use</li>
+          <li>Returned with everything it came with, in suitable packaging</li>
         </ul>
-        <p>Items marked as <strong>Final Sale</strong> or <strong>Non-Returnable</strong> on the product page are not eligible for returns.</p>
+        <p>Size exchanges depend on stock. If your size is not available, we will refund the item instead.</p>
       </Section>
-      <Section title="How to Initiate a Return">
-        <p>1. Go to <strong>My Account → My Orders</strong> and click <strong>Return Item</strong> next to the order.</p>
-        <p>2. Select the items and reason for return.</p>
-        <p>3. Our team will schedule a free pickup within 2 business days.</p>
-        <p>4. Once the item is received and quality-checked, your refund will be processed.</p>
+
+      <Section title="How to Request a Return or Exchange">
+        <p>1. Send us a message through our <Link href="/contact" className="underline">Contact page</Link> with your <strong>order reference</strong> (e.g. WAR-1A2B3C4D), the item, and the reason.</p>
+        <p>2. We will confirm within 2 business days and arrange a reverse pickup if your pincode is serviceable by our courier partner. If it is not, we will share the address to send the item to.</p>
+        <p>3. Once the item reaches us and passes a quality check, we process your exchange or refund.</p>
       </Section>
-      <Section title="Refund Timeline">
-        <p><strong>Original Payment Method</strong>: Refunded within 5–7 business days after return pickup.</p>
-        <p><strong>Store Credit</strong>: Available within 24 hours of pickup — use it on your next order.</p>
-        <p>Shipping charges are non-refundable unless the return is due to a defect or wrong item sent.</p>
+
+      <Section title="Refunds">
+        <p><strong>Online payments</strong> (UPI, cards, net banking, wallets): refunded to the original payment method within {p.refundDays} after the quality check.</p>
+        <p><strong>Cash on Delivery</strong>: refunded to a UPI ID or bank account that you share with us, within {p.refundDays} after the quality check.</p>
+        <p>Shipping charges are not refundable on returns, except when the item was damaged, defective or not what you ordered.</p>
       </Section>
-      <Section title="Damaged or Wrong Items">
-        <p>If you receive a damaged, defective, or incorrect item, contact us within 48 hours of delivery with photos. We'll arrange an immediate replacement or full refund at no cost to you.</p>
-      </Section>
-      <Section title="Exchange Policy">
-        <p>Currently we do not support direct exchanges. Please return the item and place a new order for the desired size or colour. Store credit makes this seamless.</p>
+
+      <Section title="Damaged, Defective or Wrong Items">
+        <p>If something arrives damaged, defective or different from what you ordered, contact us within <strong>{p.damageReportHours} hours of delivery</strong> with clear photos of the item and packaging. We will send a free replacement or give you a full refund including shipping.</p>
       </Section>
     </LegalPage>
   );

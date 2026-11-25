@@ -2,17 +2,12 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
-import { Package, ArrowLeft, CheckCircle2, Clock, RefreshCw, Truck, AlertCircle, MapPin, CreditCard, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertCircle, Gift, HelpCircle, MapPin, Truck } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
-import { createClient } from '@/lib/supabase/client';
 import { formatPrice } from '@/lib/utils';
-
-const STATUS_TIMELINE = [
-  { key: 'confirmed', label: 'Ordered & Confirmed', desc: 'Your order has been placed' },
-  { key: 'processing', label: 'Packed & Processing', desc: 'Quality checked & prepared' },
-  { key: 'shipped', label: 'Out for Delivery', desc: 'Handed to logistics partner' },
-  { key: 'delivered', label: 'Delivered', desc: 'Package delivered safely' },
-];
+import { orderReference } from '@/lib/checkout/client';
+import ProductImage from '@/components/product/ProductImage';
+import { OrderTimeline, PaymentChip, StatusChip, TrackingInfo, paymentLabel } from '@/components/account/AccountShell';
 
 export default function OrderDetailsPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
   const resolvedParams = typeof (params as any)?.then === 'function' ? use(params as Promise<{ id: string }>) : (params as { id: string });
@@ -29,26 +24,12 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
     async function fetchOrder() {
       if (!orderId) return;
       try {
-        const response = await fetch(`/api/orders?order_id=${orderId}`);
+        const response = await fetch(`/api/orders?order_id=${encodeURIComponent(orderId)}`);
         if (response.ok) {
           const resData = await response.json();
-          if (resData.orders && resData.orders.length > 0) {
-            setOrder(resData.orders[0]);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // Fallback direct query on Supabase if API route returns empty
-        const supabase = createClient();
-        const { data } = await supabase
-          .from('orders')
-          .select('*')
-          .or(`id.eq.${orderId},order_number.eq.${orderId}`)
-          .maybeSingle();
-
-        if (data) {
-          setOrder(data);
+          const found = resData.orders?.[0];
+          // Only the owner gets the full order (with items); anything else is "not found" here.
+          if (found?.order_items) setOrder(found);
         }
       } catch (err) {
         console.error('Error fetching order details', err);
@@ -59,8 +40,8 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
     fetchOrder();
   }, [orderId, user?.id]);
 
-  const handleCancelItem = async (itemId: string, itemPrice: number) => {
-    if (!confirm(`Are you sure you want to cancel this item? ₹${itemPrice} will be refunded.`)) return;
+  const handleCancelItem = async (itemId: string) => {
+    if (!confirm('Are you sure you want to cancel this item?')) return;
 
     setCancellingItemId(itemId);
     setCancelNotice(null);
@@ -87,14 +68,11 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
           const updatedItems = (prev.order_items || []).map((it: any) =>
             it.id === itemId ? { ...it, status: 'cancelled' } : it
           );
-          const activeCount = updatedItems.filter((it: any) => it.status !== 'cancelled').length;
-          const newStatus = activeCount === 0 ? 'cancelled' : 'partially_cancelled';
-          const newTotal = Math.max(0, prev.total - itemPrice);
-
           return {
             ...prev,
-            status: newStatus,
-            total: newTotal,
+            status: resData.new_status,
+            total: resData.new_total,
+            payment_status: resData.new_status === 'cancelled' && resData.refund_amount > 0 ? 'refunded' : prev.payment_status,
             order_items: updatedItems,
           };
         });
@@ -109,225 +87,209 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
     }
   };
 
+
   if (loading) {
     return (
-      <main className="min-h-screen py-16 flex items-center justify-center" style={{ background: 'var(--bg)' }}>
-        <RefreshCw size={24} className="animate-spin" style={{ color: 'var(--fg-muted)' }} />
-      </main>
+      <div className="w-full ui-page">
+        <div className="max-w-6xl mx-auto w-full px-4 sm:px-8 py-10 space-y-4">
+          <div className="h-4 w-32 skeleton" />
+          <div className="h-10 w-64 skeleton" />
+          <div className="h-36 skeleton rounded-2xl" />
+          <div className="h-64 skeleton rounded-2xl" />
+        </div>
+      </div>
     );
   }
 
   if (!order) {
     return (
-      <main className="min-h-screen py-16 text-center" style={{ background: 'var(--bg)' }}>
-        <div className="max-w-md mx-auto px-5">
-          <Package size={40} className="mx-auto mb-3" style={{ color: 'var(--fg-subtle)' }} />
-          <h1 className="text-xl font-bold mb-2" style={{ color: 'var(--fg)' }}>Order Not Found</h1>
-          <p className="text-sm mb-6" style={{ color: 'var(--fg-muted)' }}>This order does not exist or has been removed from the database.</p>
-          <Link href="/account/orders" className="px-6 py-2.5 rounded-xl text-xs font-bold" style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-            Back to My Orders
-          </Link>
+      <div className="w-full ui-page">
+        <div className="max-w-xl mx-auto w-full px-4 sm:px-8 py-16">
+          <div className="ui-card py-12 px-6 text-center">
+            <span className="mx-auto mb-5 w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>
+              <AlertCircle size={26} />
+            </span>
+            <h1 className="ui-heading text-3xl mb-2" style={{ color: 'var(--fg)' }}>Order not found</h1>
+            <p className="text-[15px] max-w-sm mx-auto mb-7" style={{ color: 'var(--fg-muted)' }}>
+              This order doesn&apos;t exist, or it belongs to another account.
+            </p>
+            <Link href="/account/orders" className="ui-btn">Back to my orders</Link>
+          </div>
         </div>
-      </main>
+      </div>
     );
   }
 
-  const statusIndex = STATUS_TIMELINE.findIndex((s) => s.key === order?.status);
-  const currentStep = statusIndex === -1 ? 0 : statusIndex;
   const isCancellable = ['confirmed', 'processing', 'pending'].includes(order?.status);
+  const addr = order.shipping_address ?? order.delivery_address ?? {};
+  const placed = new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const trackable = !['pending', 'cancelled', 'refunded'].includes(order.status);
+  const pointsUsed = Number(order.points_used) || 0;
+  const pointsEarned = Number(order.points_earned) || 0;
+  const discount = Number(order.discount) || 0;
+  const shipping = Number(order.shipping) || 0;
 
   return (
-    <main className="min-h-screen py-10" style={{ background: 'var(--bg)' }}>
-      <div className="max-w-4xl mx-auto px-5 sm:px-8">
-        <Link href="/account/orders" className="inline-flex items-center gap-2 text-sm font-semibold mb-6 hover:opacity-70" style={{ color: 'var(--fg-muted)' }}>
-          <ArrowLeft size={16} /> Back to My Orders
+    <div className="w-full ui-page min-h-[70vh]">
+      <div className="max-w-6xl mx-auto w-full px-4 sm:px-8 py-8 sm:py-12">
+        <Link href="/account/orders" className="inline-flex items-center gap-2 text-sm font-semibold mb-6 hover:text-[var(--brand)]"
+          style={{ color: 'var(--fg-muted)' }}>
+          <ArrowLeft size={16} /> Back to my orders
         </Link>
 
-        {cancelNotice && (
-          <div className="mb-6 p-4 rounded-xl flex items-center gap-3"
-            style={{ background: 'rgba(34, 197, 94, 0.12)', border: '1.5px solid #22c55e', color: '#22c55e' }}>
-            <CheckCircle2 size={18} className="flex-shrink-0" />
-            <p className="text-xs font-bold">{cancelNotice}</p>
-          </div>
-        )}
-
-        {cancelError && (
-          <div className="mb-6 p-4 rounded-xl flex items-center gap-3"
-            style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1.5px solid #ef4444', color: '#ef4444' }}>
-            <AlertCircle size={18} className="flex-shrink-0" />
-            <p className="text-xs font-bold">{cancelError}</p>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--fg-subtle)' }}>Order Details</p>
-            <h1 className="text-3xl font-black mt-1" style={{ color: 'var(--fg)' }}>
-              #{order?.order_number || (order?.id ? order.id.slice(0, 8) : 'WAR-ORDER')}
-            </h1>
-            <p className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>
-              Placed on {order?.created_at ? new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently'}
-            </p>
+            <p className="text-sm font-semibold mb-1" style={{ color: 'var(--brand)' }}>Placed {placed}</p>
+            <h1 className="ui-heading leading-tight" style={{ fontSize: 'clamp(1.75rem, 4vw, 2.5rem)', color: 'var(--fg)' }}>{orderReference(order.id)}</h1>
           </div>
-          <span className="px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider"
-            style={{
-              background: order?.status === 'cancelled' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-              color: order?.status === 'cancelled' ? '#ef4444' : '#22c55e',
-              border: `1px solid ${order?.status === 'cancelled' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
-            }}>
-            Status: {order?.status}
-          </span>
+          <StatusChip status={order.status} />
         </div>
 
-        {/* Shiprocket AWB Tracking Code Banner */}
-        {order?.tracking_number && (
-          <div className="mb-6 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3"
-            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-wider text-[var(--fg-subtle)]">Shiprocket AWB Tracking Code</p>
-              <p className="text-sm font-mono font-bold text-[var(--accent)] mt-0.5">{order.tracking_number}</p>
-            </div>
-            <Link href={`/track-order?order=${order.id}`}
-              className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all hover:opacity-90 cursor-pointer"
-              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              Track Live Courier
-            </Link>
-          </div>
+        {cancelNotice && (
+          <p role="status" className="mb-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium" style={{ background: 'var(--ok-soft)', color: 'var(--ok)' }}>
+            <CheckCircle2 size={16} /> {cancelNotice}
+          </p>
+        )}
+        {cancelError && (
+          <p role="alert" className="mb-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>
+            <AlertCircle size={16} /> {cancelError}
+          </p>
         )}
 
-        {/* Timeline */}
-        <div className="rounded-2xl p-6 mb-8" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <h2 className="text-xs font-black uppercase tracking-[0.2em] mb-6" style={{ color: 'var(--fg)' }}>Tracking Progress</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            {STATUS_TIMELINE.map((step, idx) => {
-              const isPassed = idx <= currentStep;
-              return (
-                <div key={step.key} className="flex flex-col items-start relative">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs mb-2"
-                    style={{
-                      background: isPassed ? '#22c55e' : 'var(--bg-elevated)',
-                      color: isPassed ? '#fff' : 'var(--fg-muted)',
-                      border: isPassed ? 'none' : '1px solid var(--border)',
-                    }}>
-                    {isPassed ? <CheckCircle2 size={16} /> : idx + 1}
-                  </div>
-                  <p className="text-xs font-bold" style={{ color: isPassed ? 'var(--fg)' : 'var(--fg-muted)' }}>{step.label}</p>
-                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--fg-subtle)' }}>{step.desc}</p>
-                </div>
-              );
-            })}
+        {/* Progress */}
+        <section className="ui-card p-5 sm:p-7 mb-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <h2 className="ui-heading text-xl" style={{ color: 'var(--fg)' }}>Order status</h2>
+            {trackable && (
+              <Link href={`/track-order?order=${order.id}`} className="ui-link text-sm inline-flex items-center gap-1.5">
+                <Truck size={15} /> Track order
+              </Link>
+            )}
           </div>
-        </div>
+          <OrderTimeline status={order.status} placedAt={order.created_at} updatedAt={order.updated_at} />
+          {(order.tracking_number || order.courier_name) && (
+            <div className="mt-6">
+              <TrackingInfo courier={order.courier_name} awb={order.tracking_number} />
+            </div>
+          )}
+        </section>
 
-        <div className="grid md:grid-cols-3 gap-6">
-          {/* Order Items */}
-          <div className="md:col-span-2 space-y-4">
-            <div className="rounded-2xl p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <h2 className="text-xs font-black uppercase tracking-[0.2em] mb-4" style={{ color: 'var(--fg)' }}>Ordered Items</h2>
-              <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {order?.order_items?.map((item: any) => {
-                  const itemPrice = item.total_price || item.unit_price * item.quantity;
-                  const isCancelled = item.status === 'cancelled';
-                  return (
-                    <div key={item.id} className="py-4 first:pt-0 last:pb-0 flex flex-wrap items-center justify-between gap-4">
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="w-12 h-14 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0" style={{ background: 'var(--bg-elevated)' }}>
-                          <Package size={20} style={{ color: 'var(--fg-subtle)' }} />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold truncate" style={{ color: isCancelled ? 'var(--fg-muted)' : 'var(--fg)', textDecoration: isCancelled ? 'line-through' : 'none' }}>
-                            {item.product?.name || 'WAR Apparel'}
+        <div className="grid lg:grid-cols-12 gap-5">
+          {/* Items */}
+          <section className="lg:col-span-7 ui-card p-5 sm:p-7 self-start">
+            <h2 className="ui-heading text-xl mb-4" style={{ color: 'var(--fg)' }}>
+              Items <span className="text-sm font-semibold" style={{ color: 'var(--fg-muted)' }}>({order?.order_items?.length || 0})</span>
+            </h2>
+            <ul className="space-y-4">
+              {order?.order_items?.map((item: any) => {
+                const itemPrice = item.total_price || item.unit_price * item.quantity;
+                const isCancelled = item.status === 'cancelled';
+                const meta = [item.variant?.size && `Size ${item.variant.size}`, item.variant?.color, `Qty ${item.quantity}`].filter(Boolean).join(' · ');
+                const name = item.product?.name || 'WAR Apparel';
+                return (
+                  <li key={item.id} className="flex gap-3 sm:gap-4 pb-4 border-b last:border-b-0 last:pb-0" style={{ borderColor: 'var(--border)' }}>
+                    <div className="relative w-16 h-20 sm:w-20 sm:h-24 flex-shrink-0 overflow-hidden rounded-xl"
+                      style={{ background: 'var(--surface-2)', opacity: isCancelled ? 0.5 : 1 }}>
+                      <ProductImage src={item.product?.images?.[0]?.url} alt={name} sizes="80px" />
+                    </div>
+                    <div className="min-w-0 flex-1 flex flex-col">
+                      <div className="flex items-start justify-between gap-3">
+                        {item.product?.slug && !isCancelled ? (
+                          <Link href={`/products/${item.product.slug}`} className="text-[15px] font-semibold leading-snug hover:text-[var(--brand)]" style={{ color: 'var(--fg)' }}>
+                            {name}
+                          </Link>
+                        ) : (
+                          <p className="text-[15px] font-semibold leading-snug"
+                            style={{ color: isCancelled ? 'var(--fg-subtle)' : 'var(--fg)', textDecoration: isCancelled ? 'line-through' : 'none' }}>
+                            {name}
                           </p>
-                          <p className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>
-                            Qty: {item.quantity} {item.variant?.size ? `· Size: ${item.variant.size}` : ''} {item.variant?.color ? `· Color: ${item.variant.color}` : ''}
-                          </p>
-                          {isCancelled && (
-                            <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded"
-                              style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>
-                              Cancelled & Refunded
-                            </span>
-                          )}
-                        </div>
+                        )}
+                        <span className="text-[15px] font-bold whitespace-nowrap" style={{ color: isCancelled ? 'var(--fg-subtle)' : 'var(--fg)' }}>{formatPrice(itemPrice)}</span>
                       </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-black" style={{ color: 'var(--fg)' }}>{formatPrice(itemPrice)}</span>
+                      <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>{meta}</p>
+                      <div className="mt-auto pt-2 flex items-center gap-3">
+                        {isCancelled && <span className="ui-chip ui-chip-bad">Cancelled</span>}
                         {!isCancelled && isCancellable && (
                           <button
-                            onClick={() => handleCancelItem(item.id, itemPrice)}
+                            onClick={() => handleCancelItem(item.id)}
                             disabled={cancellingItemId === item.id}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-                            style={{ background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                            className="text-sm font-semibold rounded-full border px-3.5 py-1.5 transition-colors hover:border-[var(--bad)] hover:text-[var(--bad)] disabled:opacity-50"
+                            style={{ borderColor: 'var(--border-strong)', color: 'var(--fg-muted)' }}
                           >
                             {cancellingItemId === item.id ? 'Cancelling…' : 'Cancel Item'}
                           </button>
                         )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {isCancellable && (
+              <p className="text-sm mt-5 rounded-xl px-4 py-3" style={{ background: 'var(--surface-2)', color: 'var(--fg-muted)' }}>
+                Items can be cancelled until the order ships. Online payments are refunded automatically.
+              </p>
+            )}
+          </section>
 
-          {/* Delivery & Payment Summary */}
-          <div className="space-y-6">
-            <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <div className="flex items-center gap-2 mb-3">
-                <MapPin size={16} style={{ color: 'var(--fg-muted)' }} />
-                <h3 className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: 'var(--fg)' }}>Delivery Address</h3>
+          {/* Summary */}
+          <aside className="lg:col-span-5 space-y-5">
+            <div className="ui-card p-5 sm:p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h2 className="ui-heading text-lg" style={{ color: 'var(--fg)' }}>Payment</h2>
+                <PaymentChip order={order} />
               </div>
-              <p className="text-xs font-bold" style={{ color: 'var(--fg)' }}>
-                {order?.shipping_address?.full_name || order?.delivery_address?.full_name || 'Customer'}
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>
-                {order?.shipping_address?.address_line_1 || order?.delivery_address?.address_line1}, {order?.shipping_address?.city || order?.delivery_address?.city}, {order?.shipping_address?.state || order?.delivery_address?.state} - {order?.shipping_address?.pincode || order?.delivery_address?.pincode}
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--fg-subtle)' }}>
-                Phone: {order?.shipping_address?.phone || order?.delivery_address?.phone}
-              </p>
+              <p className="text-sm mb-4" style={{ color: 'var(--fg-muted)' }}>{paymentLabel(order)}</p>
+              <dl className="space-y-2.5 text-[15px]">
+                {order.subtotal != null && (
+                  <Row label="Items total" value={formatPrice(order.subtotal)} />
+                )}
+                {discount > 0 && (
+                  <Row label={order.coupon_code ? `Coupon ${order.coupon_code}` : 'Discount'} value={`− ${formatPrice(discount)}`} tone="ok" />
+                )}
+                {pointsUsed > 0 && (
+                  <Row label="Reward points used" value={`− ${formatPrice(pointsUsed)}`} tone="ok" />
+                )}
+                <Row label="Shipping" value={shipping > 0 ? formatPrice(shipping) : 'Free'} tone={shipping > 0 ? undefined : 'ok'} />
+              </dl>
+              <div className="mt-4 pt-4 border-t flex items-baseline justify-between" style={{ borderColor: 'var(--border)' }}>
+                <span className="text-base font-bold" style={{ color: 'var(--fg)' }}>Total</span>
+                <span className="text-2xl font-extrabold" style={{ color: 'var(--fg)' }}>{formatPrice(order?.total)}</span>
+              </div>
+              {pointsEarned > 0 && (
+                <p className="mt-4 flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+                  <Gift size={16} /> You earned {pointsEarned} reward points on this order
+                </p>
+              )}
             </div>
 
-            <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <div className="flex items-center gap-2 mb-3">
-                <CreditCard size={16} style={{ color: 'var(--fg-muted)' }} />
-                <h3 className="text-xs font-black uppercase tracking-[0.2em]" style={{ color: 'var(--fg)' }}>Payment Summary</h3>
-              </div>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
-                  <span>Method</span>
-                  <span className="font-bold uppercase" style={{ color: 'var(--fg)' }}>
-                    {(() => {
-                      let notesObj: any = {};
-                      if (typeof order?.notes === 'string') {
-                        try { notesObj = JSON.parse(order.notes); } catch (e) {}
-                      } else if (typeof order?.notes === 'object' && order?.notes !== null) {
-                        notesObj = order.notes;
-                      }
-                      const gateway = notesObj.gateway || order?.shipping_address?.gateway;
-                      const detail = notesObj.payment_method_detail || order?.shipping_address?.payment_method_detail || order?.payment_method || 'ONLINE';
-                      const wallet = notesObj.wallet || order?.shipping_address?.wallet;
-                      if (gateway === 'Razorpay') {
-                        return `RAZORPAY (${detail.toUpperCase()}${wallet ? ` - ${wallet.toUpperCase()}` : ''})`;
-                      }
-                      return (order?.payment_method || 'COD').toUpperCase();
-                    })()}
-                  </span>
-                </div>
-                <div className="flex justify-between" style={{ color: 'var(--fg-muted)' }}>
-                  <span>Status</span>
-                  <span className="font-bold capitalize" style={{ color: '#22c55e' }}>{order?.payment_status || 'paid'}</span>
-                </div>
-                <div className="pt-2 flex justify-between font-black text-sm" style={{ borderTop: '1px solid var(--border)', color: 'var(--fg)' }}>
-                  <span>Total Amount</span>
-                  <span>{formatPrice(order?.total)}</span>
-                </div>
-              </div>
+            <div className="ui-card p-5 sm:p-6">
+              <h2 className="ui-heading text-lg mb-3 flex items-center gap-2" style={{ color: 'var(--fg)' }}>
+                <MapPin size={18} style={{ color: 'var(--brand)' }} /> Delivering to
+              </h2>
+              <p className="text-[15px] font-semibold" style={{ color: 'var(--fg)' }}>{addr.full_name}</p>
+              <p className="text-sm mt-1 leading-relaxed" style={{ color: 'var(--fg-muted)' }}>
+                {[addr.address_line_1 || addr.address_line1, addr.address_line_2].filter(Boolean).join(', ')}
+                <br />
+                {[addr.city, addr.state].filter(Boolean).join(', ')}{addr.pincode ? ` — ${addr.pincode}` : ''}
+              </p>
+              {addr.phone && <p className="text-sm mt-2" style={{ color: 'var(--fg-muted)' }}>Phone {addr.phone}</p>}
             </div>
-          </div>
+
+            <Link href="/contact" className="ui-btn-ghost w-full"><HelpCircle size={16} /> Need help with this order?</Link>
+          </aside>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
+function Row({ label, value, tone }: { label: string; value: string; tone?: 'ok' }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt style={{ color: 'var(--fg-muted)' }}>{label}</dt>
+      <dd className="font-semibold" style={{ color: tone === 'ok' ? 'var(--ok)' : 'var(--fg)' }}>{value}</dd>
+    </div>
+  );
+}

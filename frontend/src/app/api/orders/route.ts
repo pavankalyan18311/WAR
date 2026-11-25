@@ -1,289 +1,204 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createShiprocketOrder } from '@/lib/shiprocket';
-import { recordCouponUsage } from '@/lib/coupon';
+import { requireUser } from '@/lib/apiAuth';
+import { CheckoutError, priceOrder, supabasePricingDeps } from '@/lib/checkout/priceOrder';
+import { validateShippingAddress } from '@/lib/checkout/address';
+import { afterOrderConfirmed, releaseStock, reserveStock } from '@/lib/checkout/fulfil';
+import { redeemPoints } from '@/lib/rewards';
+import { getPublicStorageUrl } from '@/lib/supabase/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
 function getAdminClient() {
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
-  });
+  }) as any;
 }
 
-function normalizePaymentMethod(method: string | undefined): 'cod' | 'card' | 'upi' | 'net_banking' | 'loyalty_points' {
-  if (!method) return 'cod';
-  const lower = method.toLowerCase();
-  if (lower === 'cod') return 'cod';
-  if (lower === 'upi' || lower.includes('upi')) return 'upi';
-  if (lower === 'net_banking' || lower.includes('netbank')) return 'net_banking';
-  if (lower === 'loyalty_points' || lower.includes('loyalty')) return 'loyalty_points';
-  return 'card';
+const ORDER_SELECT = `
+  *,
+  order_items:order_items(
+    *,
+    product:products(name, slug, product_media(storage_path, sort_order)),
+    variant:product_variants(id, sku, color:colors(name), size_option:size_options(name))
+  )
+`;
+
+function normalizeOrder(ord: any) {
+  return {
+    ...ord,
+    order_items: (ord.order_items ?? []).map((item: any) => ({
+      ...item,
+      product: item.product && {
+        ...item.product,
+        // First photo (by sort order) for order thumbnails
+        images: [...(item.product.product_media ?? [])]
+          .sort((a: any, b: any) => a.sort_order - b.sort_order)
+          .slice(0, 1)
+          .map((m: any) => ({ url: getPublicStorageUrl(m.storage_path) })),
+      },
+      variant: {
+        ...item.variant,
+        color: item.variant?.color?.name ?? null,
+        size: item.variant?.size_option?.name ?? null,
+      },
+    })),
+  };
 }
 
 /**
- * GET /api/orders?user_id=...&order_id=...
+ * GET /api/orders            → the signed-in user's orders
+ * GET /api/orders?order_id=  → full order for its owner; status-only tracking for anyone else
+ * GET /api/orders?ref=WAR-…  /  ?awb=<courier tracking number> → the signed-in user's own order
  */
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get('user_id');
-  const orderId = searchParams.get('order_id');
+  const auth = await requireUser();
+  if (auth.response) return auth.response;
 
-  if (!userId && !orderId) {
-    return NextResponse.json({ error: 'user_id or order_id is required' }, { status: 400 });
+  const params = new URL(request.url).searchParams;
+  const orderId = params.get('order_id');
+  const ref = params.get('ref');
+  const awb = params.get('awb')?.replace(/\s+/g, '');
+  const supabase = getAdminClient();
+
+  if (awb) {
+    // Courier tracking number (AWB) — own orders only.
+    if (!/^[A-Za-z0-9-]{4,40}$/.test(awb)) return NextResponse.json({ error: 'Invalid tracking number.' }, { status: 400 });
+    const { data, error } = await supabase
+      .from('orders')
+      .select(ORDER_SELECT)
+      .eq('user_id', auth.user.id)
+      .eq('tracking_number', awb);
+    if (error) return NextResponse.json({ error: 'Could not load order.' }, { status: 500 });
+    return NextResponse.json({ success: true, orders: (data ?? []).map(normalizeOrder) });
   }
 
-  try {
-    const supabase = getAdminClient();
+  if (ref) {
+    // Short reference "WAR-ABCDEF12" = first 8 hex chars of the order UUID. Own orders only.
+    const match = /^WAR-([0-9a-f]{8})$/i.exec(ref.trim());
+    if (!match) return NextResponse.json({ error: 'Invalid order reference.' }, { status: 400 });
+    const prefix = match[1].toLowerCase();
+    const { data, error } = await supabase
+      .from('orders')
+      .select(ORDER_SELECT)
+      .eq('user_id', auth.user.id)
+      .gte('id', `${prefix}-0000-0000-0000-000000000000`)
+      .lte('id', `${prefix}-ffff-ffff-ffff-ffffffffffff`);
+    if (error) return NextResponse.json({ error: 'Could not load order.' }, { status: 500 });
+    return NextResponse.json({ success: true, orders: (data ?? []).map(normalizeOrder) });
+  }
 
-    const [{ data: colorsData }, { data: sizesData }] = await Promise.all([
-      supabase.from('colors').select('*'),
-      supabase.from('size_options').select('*'),
-    ]);
-
-    const colorsMap = new Map((colorsData || []).map((c: any) => [c.id, c.name]));
-    const sizesMap = new Map((sizesData || []).map((s: any) => [s.id, s.name]));
-
-    let query = supabase.from('orders').select(`
-      *,
-      order_items:order_items(
-        *,
-        product:products(name, slug),
-        variant:product_variants(id, price, compare_at_price, sku, color_id, size_option_id)
-      )
-    `);
-
-    if (orderId) {
-      query = query.eq('id', orderId);
-    } else if (userId) {
-      query = query.eq('user_id', userId);
+  if (orderId) {
+    const { data, error } = await supabase.from('orders').select(ORDER_SELECT).eq('id', orderId);
+    if (error) return NextResponse.json({ error: 'Could not load order.' }, { status: 500 });
+    const order = data?.[0];
+    if (!order) return NextResponse.json({ success: true, orders: [] });
+    if (order.user_id !== auth.user.id) {
+      const { id, status, tracking_number, created_at, updated_at } = order;
+      return NextResponse.json({ success: true, orders: [{ id, status, tracking_number, created_at, updated_at }] });
     }
-
-    query = query.order('created_at', { ascending: false });
-
-    const { data: rawOrders, error } = await query;
-
-    if (error) {
-      console.warn('/api/orders GET join notice:', error.message);
-      let fallbackQuery = supabase.from('orders').select('*');
-      if (orderId) fallbackQuery = fallbackQuery.eq('id', orderId);
-      else if (userId) fallbackQuery = fallbackQuery.eq('user_id', userId);
-      fallbackQuery = fallbackQuery.order('created_at', { ascending: false });
-
-      const { data: fallbackOrders } = await fallbackQuery;
-      return NextResponse.json({ success: true, orders: fallbackOrders || [] });
-    }
-
-    if (!rawOrders) {
-      return NextResponse.json({ success: true, orders: [] });
-    }
-
-    const orders = rawOrders.map((ord: any) => {
-      let parsedAddress = ord.shipping_address;
-      if (typeof parsedAddress === 'string') {
-        try { parsedAddress = JSON.parse(parsedAddress); } catch (e) {}
-      }
-
-      const normalizedItems = (ord.order_items || []).map((item: any) => {
-        const colorName = colorsMap.get(item.variant?.color_id) || item.variant?.color || 'Default';
-        const sizeName = sizesMap.get(item.variant?.size_option_id) || item.variant?.size || 'Free Size';
-
-        return {
-          ...item,
-          product: item.product || { name: 'WAR Apparel', slug: 'war-apparel' },
-          variant: {
-            ...item.variant,
-            size: sizeName,
-            color: colorName,
-          },
-        };
-      });
-
-      return {
-        ...ord,
-        shipping_address: parsedAddress,
-        order_items: normalizedItems,
-      };
-    });
-
-    return NextResponse.json({ success: true, orders });
-  } catch (err: any) {
-    console.error('/api/orders GET exception:', err);
-    return NextResponse.json({ error: err.message || 'Server error' }, { status: 500 });
-  }
-}
-
-async function getOrCreateGuestUser(supabase: any, email?: string, name?: string) {
-  let targetEmail = (email || '').trim().toLowerCase();
-  if (!targetEmail || !targetEmail.includes('@')) {
-    targetEmail = `guest_${Date.now()}_${Math.floor(Math.random() * 10000)}@warbrand.com`;
+    return NextResponse.json({ success: true, orders: [normalizeOrder(order)] });
   }
 
-  // 1. Check if profile already exists in public.profiles by email
-  const { data: existingProfile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('email', targetEmail)
-    .maybeSingle();
-
-  if (existingProfile?.id) {
-    return existingProfile.id;
-  }
-
-  // 2. Auto-create guest user using Supabase Auth Admin SDK
-  try {
-    const { data: newUser } = await supabase.auth.admin.createUser({
-      email: targetEmail,
-      email_confirm: true,
-      user_metadata: { name: name || 'Guest Customer' },
-    });
-
-    if (newUser?.user?.id) {
-      return newUser.user.id;
-    }
-  } catch (err) {
-    console.warn('Guest account creation notice:', err);
-  }
-
-  // 3. Fallback: return any valid profile ID
-  const { data: firstProfile } = await supabase
-    .from('profiles')
-    .select('id')
-    .limit(1)
-    .maybeSingle();
-
-  return firstProfile?.id || null;
+  const { data, error } = await supabase
+    .from('orders')
+    .select(ORDER_SELECT)
+    .eq('user_id', auth.user.id)
+    .order('created_at', { ascending: false });
+  if (error) return NextResponse.json({ error: 'Could not load orders.' }, { status: 500 });
+  return NextResponse.json({ success: true, orders: (data ?? []).map(normalizeOrder) });
 }
 
 /**
- * POST /api/orders
+ * POST /api/orders — places a Cash on Delivery order (or one fully paid with reward points).
+ * Body: { items: [{ variant_id, quantity }], coupon_code?, points_to_use?, shipping_address }
+ * Prices, stock and coupon are all checked on the server.
  */
 export async function POST(request: Request) {
+  const auth = await requireUser();
+  if (auth.response) return auth.response;
+
+  const supabase = getAdminClient();
   try {
     const body = await request.json();
-    const { order, items } = body;
-
-    if (!order || !order.id) {
-      return NextResponse.json({ error: 'Invalid order payload' }, { status: 400 });
+    const address = validateShippingAddress(body.shipping_address);
+    const priced = await priceOrder(supabasePricingDeps(supabase, auth.user.id), {
+      items: body.items,
+      couponCode: body.coupon_code,
+      pointsToUse: body.points_to_use,
+    });
+    const pointsUsed = priced.pointsUsed ?? 0;
+    const paidByPoints = pointsUsed > 0 && priced.totals.total === 0;
+    if (!paidByPoints && !priced.settings.cod_enabled) {
+      throw new CheckoutError('Cash on Delivery is not available right now. Please pay online.');
     }
 
-    const supabase = getAdminClient();
-    const dbPaymentMethod = normalizePaymentMethod(order.payment_method);
-
-    const rawAddress = order.shipping_address || {};
-    const cleanShippingAddress = {
-      full_name: rawAddress.full_name || '',
-      phone: rawAddress.phone || '',
-      address_line_1: rawAddress.address_line_1 || rawAddress.address_line1 || '',
-      address_line_2: rawAddress.address_line_2 || rawAddress.address_line2 || '',
-      city: rawAddress.city || '',
-      state: rawAddress.state || '',
-      pincode: rawAddress.pincode || '',
-      country: rawAddress.country || 'India',
-    };
-
-    // Resolve valid user_id (for guest buyers or logged-in users)
-    let finalUserId = order.user_id;
-    if (!finalUserId) {
-      const guestEmail = rawAddress.email || order.email || '';
-      finalUserId = await getOrCreateGuestUser(supabase, guestEmail, cleanShippingAddress.full_name);
+    if (!(await reserveStock(supabase, priced.lines))) {
+      return NextResponse.json(
+        { error: 'Some items just sold out. Please review your cart.' },
+        { status: 409 },
+      );
     }
 
-    // 1. Insert order record
-    const { error: orderError } = await (supabase as any)
-      .from('orders')
-      .insert({
-        id: order.id,
-        user_id: finalUserId,
-        status: order.status || 'confirmed',
-        subtotal: Number(order.subtotal || 0),
-        discount: Number(order.discount || 0),
-        shipping: Number(order.shipping || 0),
-        tax: Number(order.tax || 0),
-        total: Number(order.total || 0),
-        payment_method: dbPaymentMethod,
-        payment_status: order.payment_status || 'pending',
-        shipping_address: cleanShippingAddress,
-        notes: typeof order.notes === 'string' ? order.notes : (order.notes ? JSON.stringify(order.notes) : null),
-        coupon_code: order.coupon_code || null,
-      });
+    const orderId = crypto.randomUUID();
+    const { error: orderError } = await supabase.from('orders').insert({
+      id: orderId,
+      user_id: auth.user.id,
+      status: 'confirmed',
+      payment_method: paidByPoints ? 'points' : 'cod',
+      payment_status: paidByPoints ? 'paid' : 'pending',
+      ...priced.totals,
+      ...(pointsUsed > 0 ? { points_used: pointsUsed } : {}),
+      coupon_code: priced.couponCode,
+      shipping_address: address,
+    });
+    const { error: itemsError } = orderError
+      ? { error: null }
+      : await supabase.from('order_items').insert(
+          priced.lines.map((l) => ({
+            order_id: orderId,
+            product_id: l.product_id,
+            variant_id: l.variant_id,
+            quantity: l.quantity,
+            unit_price: l.unit_price,
+            total_price: l.total_price,
+          })),
+        );
 
-    if (orderError) {
-      console.error('/api/orders POST orderError:', orderError);
-      return NextResponse.json({ error: orderError.message }, { status: 400 });
+    if (orderError || itemsError) {
+      console.error('/api/orders POST save error:', orderError ?? itemsError);
+      if (!orderError) await supabase.from('orders').delete().eq('id', orderId);
+      await releaseStock(supabase, priced.lines);
+      return NextResponse.json({ error: 'Could not place your order. Please try again.' }, { status: 500 });
     }
 
-    // 2. Insert order_items records if any
-    if (items && Array.isArray(items) && items.length > 0) {
-      const formattedItems = items.map((it: any) => ({
-        id: it.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined),
-        order_id: order.id,
-        product_id: it.product_id,
-        variant_id: it.variant_id,
-        quantity: Number(it.quantity || 1),
-        unit_price: Number(it.unit_price || 0),
-        total_price: Number(it.total_price || (it.unit_price * it.quantity)),
-      }));
-
-      const { error: itemsError } = await (supabase as any)
-        .from('order_items')
-        .insert(formattedItems);
-
-      if (itemsError) {
-        console.error('/api/orders POST itemsError:', itemsError);
-        return NextResponse.json({ error: `Failed to save order items: ${itemsError.message}` }, { status: 400 });
-      }
+    // Spend the points (atomic). If they were used elsewhere meanwhile, undo the order.
+    if (pointsUsed > 0 && !(await redeemPoints(supabase, auth.user.id, orderId, pointsUsed))) {
+      await supabase.from('order_items').delete().eq('order_id', orderId);
+      await supabase.from('orders').delete().eq('id', orderId);
+      await releaseStock(supabase, priced.lines);
+      return NextResponse.json({ error: 'Your reward points balance changed. Please review your order.' }, { status: 409 });
     }
 
-    // 3. Record coupon usage if applied
-    if (order.coupon_code && finalUserId) {
-      await recordCouponUsage(order.coupon_code, finalUserId, order.id);
-    }
-
-    // 4. Trigger Shiprocket shipment creation automatically
     try {
-      const shipItems = (items || []).map((it: any) => ({
-        name: 'WAR Apparel',
-        sku: `SKU-${(it.variant_id || it.product_id || 'TEE').slice(0, 8)}`,
-        units: Number(it.quantity || 1),
-        selling_price: Number(it.unit_price || 0),
-      }));
-
-      const shipRes = await createShiprocketOrder({
-        order_id: order.id,
-        order_date: new Date().toISOString().replace('T', ' ').slice(0, 19),
-        billing_customer_name: cleanShippingAddress.full_name || 'Customer',
-        billing_address: cleanShippingAddress.address_line_1 || 'Address',
-        billing_city: cleanShippingAddress.city || 'City',
-        billing_pincode: cleanShippingAddress.pincode || '560057',
-        billing_state: cleanShippingAddress.state || 'State',
-        billing_country: cleanShippingAddress.country || 'India',
-        billing_email: 'customer@war.com',
-        billing_phone: cleanShippingAddress.phone || '9988776655',
-        shipping_is_billing: true,
-        order_items: shipItems.length > 0 ? shipItems : [{ name: 'WAR Streetwear Tee', sku: 'WAR-TEE', units: 1, selling_price: Number(order.total) }],
-        payment_method: dbPaymentMethod === 'cod' ? 'COD' : 'Prepaid',
-        sub_total: Number(order.subtotal || order.total),
+      await afterOrderConfirmed(supabase, {
+        id: orderId,
+        userId: auth.user.id,
+        couponCode: priced.couponCode,
+        customerEmail: auth.user.email ?? '',
       });
-
-      if (shipRes.success && shipRes.awb_code) {
-        await (supabase as any)
-          .from('orders')
-          .update({ tracking_number: shipRes.awb_code, status: 'confirmed' })
-          .eq('id', order.id);
-      }
-    } catch (sErr) {
-      console.warn('Shiprocket dispatch notice:', sErr);
+    } catch (err) {
+      console.error('/api/orders post-confirmation step failed (order is saved):', err);
     }
 
-    return NextResponse.json({ success: true, order_id: order.id });
-  } catch (err: any) {
+    return NextResponse.json({ success: true, order_id: orderId, totals: priced.totals, points_used: pointsUsed });
+  } catch (err) {
+    if (err instanceof CheckoutError) return NextResponse.json({ error: err.message }, { status: 400 });
     console.error('/api/orders POST exception:', err);
-    return NextResponse.json({ error: err.message || 'Failed to place order' }, { status: 500 });
+    return NextResponse.json({ error: 'Could not place your order. Please try again.' }, { status: 500 });
   }
 }

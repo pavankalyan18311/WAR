@@ -4,7 +4,7 @@ import type { Database } from './database.types';
 
 /**
  * Refreshes the Supabase session in middleware so Server Components always
- * receive a non-expired session. Must be called from src/middleware.ts.
+ * receive a non-expired session, and guards /admin pages. Called from src/proxy.ts.
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -13,12 +13,17 @@ export async function updateSession(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Allow a developer override to disable Supabase auth checks in middleware.
-  // This is intentionally separate from the client-only `NEXT_PUBLIC_DISABLE_SUPABASE_AUTH` —
-  // if set at the server/container level, middleware will skip auth and allow admin routes.
-  const serverBypass = (process.env.DISABLE_SUPABASE_AUTH ?? process.env.NEXT_PUBLIC_DISABLE_SUPABASE_AUTH ?? '').toString() === 'true';
+  // Local-prototyping override only — never honoured in production.
+  const serverBypass = process.env.NODE_ENV !== 'production' && process.env.DISABLE_SUPABASE_AUTH === 'true';
+  const isAdminPath = request.nextUrl.pathname.startsWith('/admin') && request.nextUrl.pathname !== '/admin/login';
+  const redirectToAdminLogin = () => {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = '/admin/login';
+    return NextResponse.redirect(loginUrl);
+  };
 
   if (serverBypass || !supabaseUrl || supabaseUrl.startsWith('your-') || !supabaseAnonKey || supabaseAnonKey.startsWith('your-')) {
+    if (isAdminPath && !serverBypass) return redirectToAdminLogin();
     supabaseResponse.headers.set('x-pathname', request.nextUrl.pathname);
     return supabaseResponse;
   }
@@ -58,12 +63,8 @@ export async function updateSession(request: NextRequest) {
     const { data: { user } } = await Promise.race([authPromise, timeoutPromise]);
 
     // Protect admin routes — check user exists AND has an admin role
-    if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
-      if (!user) {
-        const loginUrl = request.nextUrl.clone();
-        loginUrl.pathname = '/admin/login';
-        return NextResponse.redirect(loginUrl);
-      }
+    if (isAdminPath) {
+      if (!user) return redirectToAdminLogin();
 
       // Verify role from profiles table
       const { data: profile } = await (supabase as any)
@@ -73,14 +74,12 @@ export async function updateSession(request: NextRequest) {
         .single();
 
       const role = ((profile as any)?.role || '').toLowerCase();
-      if (!['admin', 'super_admin', 'manager'].includes(role)) {
-        const loginUrl = request.nextUrl.clone();
-        loginUrl.pathname = '/admin/login';
-        return NextResponse.redirect(loginUrl);
-      }
+      if (!['admin', 'super_admin', 'manager'].includes(role)) return redirectToAdminLogin();
     }
   } catch (err) {
     console.warn('Middleware auth notice:', err);
+    // Fail closed: if we cannot confirm an admin, do not show admin pages.
+    if (isAdminPath) return redirectToAdminLogin();
   }
 
   return supabaseResponse;

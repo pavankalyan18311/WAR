@@ -1,5 +1,6 @@
 'use client';
 
+import WarLogo from '@/components/brand/WarLogo';
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -21,15 +22,24 @@ import {
   ChevronRight,
   Bell,
   ShieldCheck,
+  Mail,
+  Star,
+  Ruler,
+  LayoutTemplate,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { label: 'Products', href: '/admin/products', icon: ShoppingBag },
+  { label: 'Homepage', href: '/admin/homepage', icon: LayoutTemplate },
   { label: 'Collections', href: '/admin/collections', icon: FolderOpen },
+  { label: 'Size Charts', href: '/admin/size-charts', icon: Ruler },
   { label: 'Coupons & Offers', href: '/admin/coupons', icon: Tag },
   { label: 'Orders', href: '/admin/orders', icon: ShoppingCart },
   { label: 'Customers', href: '/admin/customers', icon: Users },
+  { label: 'Reviews', href: '/admin/reviews', icon: Star },
+  { label: 'Back in Stock', href: '/admin/stock-alerts', icon: Bell },
+  { label: 'Messages', href: '/admin/messages', icon: Mail },
   { label: 'Analytics', href: '/admin/analytics', icon: BarChart2 },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
@@ -42,6 +52,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [roleChecked, setRoleChecked] = useState(false);
   const [isDenied, setIsDenied] = useState(false);
+  const [toShipCount, setToShipCount] = useState(0);
+
+  // Bell badge: orders paid/placed but not yet shipped
+  useEffect(() => {
+    if (!roleChecked || isDenied) return;
+    fetch('/api/admin/orders')
+      .then((res) => (res.ok ? res.json() : { orders: [] }))
+      .then((data) => setToShipCount((data.orders ?? []).filter((o: any) => o.status === 'confirmed' || o.status === 'processing').length))
+      .catch(() => {});
+  }, [roleChecked, isDenied, pathname]);
 
   useEffect(() => {
     setMounted(true);
@@ -90,13 +110,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         console.error('Role check error:', err);
       }
 
-      // No valid Supabase session — fall back to admin store state
-      if (isAuthenticated) {
-        setIsDenied(false);
-      } else {
-        router.push('/auth/login');
-      }
-      setRoleChecked(true);
+      // No valid Supabase session — never trust locally stored flags.
+      router.push('/auth/login');
     };
 
     checkSupabaseRole();
@@ -190,12 +205,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Logo */}
         <div className="flex items-center justify-between px-5 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
           <Link href="/admin/dashboard" className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm tracking-wider"
-              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-            >
-              WAR
-            </div>
+            <WarLogo decorative className="h-6 w-auto" />
             <div>
               <div className="font-bold text-sm tracking-tight">WAR ADMIN</div>
               <div className="text-xs flex items-center gap-1" style={{ color: 'var(--fg-muted)' }}>
@@ -333,7 +343,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
-            <button
+            <Link
+              href="/admin/orders"
+              title={toShipCount ? `${toShipCount} order(s) to ship` : 'No orders waiting to ship'}
               className="relative p-2 rounded-lg transition-all"
               style={{ color: 'var(--fg-muted)' }}
               onMouseEnter={(e) => {
@@ -346,11 +358,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               }}
             >
               <Bell size={18} />
-              <span
-                className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
-                style={{ background: 'var(--danger, #ef4444)' }}
-              />
-            </button>
+              {toShipCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center text-white"
+                  style={{ background: 'var(--danger, #ef4444)' }}>
+                  {toShipCount}
+                </span>
+              )}
+            </Link>
             <Link
               href="/"
               className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all"

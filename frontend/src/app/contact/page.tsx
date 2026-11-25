@@ -1,171 +1,187 @@
 'use client';
 
 import { useState } from 'react';
-import { Mail, Phone, MapPin, Clock, Send, CheckCircle } from 'lucide-react';
-import ScrollReveal from '@/components/ui/ScrollReveal';
+import Link from 'next/link';
+import { ArrowRight, CheckCircle } from 'lucide-react';
+import { siteConfig } from '@/lib/siteConfig';
+
+const TOPICS = [
+  { value: 'order', label: 'Order Issue' },
+  { value: 'return', label: 'Return / Refund' },
+  { value: 'product', label: 'Product Query' },
+  { value: 'payment', label: 'Payment Issue' },
+  { value: 'other', label: 'Other' },
+];
+
+function Label({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
+  return (
+    <label htmlFor={htmlFor} className="block text-sm font-semibold mb-2" style={{ color: 'var(--fg)' }}>
+      {children}
+    </label>
+  );
+}
 
 export default function ContactPage() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', subject: '', message: '' });
+  const EMPTY = { name: '', email: '', phone: '', order_ref: '', subject: '', message: '', website: '' };
+  const [form, setForm] = useState(EMPTY);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (key: keyof typeof EMPTY) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate form submission
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setSubmitted(true);
+    setError('');
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not send your message. Please try again.');
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // Only details that have been filled in (siteConfig) are shown — never placeholders.
   const CONTACT_INFO = [
-    { icon: Mail, label: 'Email', value: 'support@threadx.in', href: 'mailto:support@threadx.in' },
-    { icon: Phone, label: 'Phone', value: '+91 80 4567 8901', href: 'tel:+918045678901' },
-    { icon: MapPin, label: 'Address', value: '42 Koramangala Industrial Layout, Bengaluru - 560095', href: undefined },
-    { icon: Clock, label: 'Support Hours', value: 'Mon–Sat, 9 AM – 7 PM IST', href: undefined },
-  ];
+    { label: 'Email', value: siteConfig.supportEmail, href: `mailto:${siteConfig.supportEmail}` },
+    { label: 'Phone', value: siteConfig.supportPhone, href: `tel:${siteConfig.supportPhone.replace(/\s/g, '')}` },
+    { label: 'Address', value: siteConfig.address, href: undefined },
+    { label: 'Support hours', value: siteConfig.supportHours, href: undefined },
+  ].filter((c) => c.value);
 
   return (
-    <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 py-12">
-          <ScrollReveal animation="fade-up">
-            <p className="text-xs font-bold tracking-[0.3em] uppercase mb-2" style={{ color: 'var(--accent)' }}>Get In Touch</p>
-            <h1 className="text-3xl sm:text-4xl font-black" style={{ color: 'var(--fg)' }}>Contact Us</h1>
-            <p className="mt-2 text-sm" style={{ color: 'var(--fg-muted)' }}>
-              We typically respond within 24 hours on business days.
-            </p>
-          </ScrollReveal>
-        </div>
-      </div>
+    <main className="ui-page w-full">
+      <div className="max-w-6xl mx-auto px-4 sm:px-8 pt-8 pb-20">
+        {/* Header */}
+        <header className="ui-card px-5 sm:px-8 py-8 mb-6">
+          <span className="ui-chip ui-chip-brand mb-4">Get in touch</span>
+          <h1 className="ui-heading leading-[1.02]" style={{ fontSize: 'clamp(2.2rem, 5vw, 3.4rem)' }}>
+            Contact <span style={{ color: 'var(--brand)' }}>us.</span>
+          </h1>
+          <p className="mt-3 text-[15px] max-w-lg" style={{ color: 'var(--fg-muted)' }}>
+            Questions about an order, a size or a return? Write to us — we typically respond within 24 hours on business days.
+          </p>
+        </header>
 
-      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-12">
-        <div className="grid md:grid-cols-2 gap-10">
-          {/* Contact info */}
-          <ScrollReveal animation="fade-right">
-            <div className="space-y-5">
-              {CONTACT_INFO.map(({ icon: Icon, label, value, href }) => (
-                <div key={label} className="flex items-start gap-4 p-4 rounded-xl"
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ background: 'var(--bg-elevated)' }}>
-                    <Icon size={18} style={{ color: 'var(--accent)' }} />
+        <div className="grid md:grid-cols-12 gap-6">
+          {/* Details column */}
+          <aside className="md:col-span-4 space-y-6 order-2 md:order-1">
+            {CONTACT_INFO.length > 0 && (
+              <dl className="ui-card px-5 py-5 space-y-4">
+                {CONTACT_INFO.map(({ label, value, href }) => (
+                  <div key={label}>
+                    <dt className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--fg-subtle)' }}>{label}</dt>
+                    <dd className="text-[15px] font-semibold break-words" style={{ color: 'var(--fg)' }}>
+                      {href ? <a href={href} className="ui-link">{value}</a> : value}
+                    </dd>
                   </div>
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider mb-0.5" style={{ color: 'var(--fg-muted)' }}>{label}</p>
-                    {href ? (
-                      <a href={href} className="text-sm font-semibold hover:underline" style={{ color: 'var(--fg)' }}>{value}</a>
-                    ) : (
-                      <p className="text-sm font-semibold" style={{ color: 'var(--fg)' }}>{value}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </dl>
+            )}
 
-              <div className="rounded-xl p-5 mt-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                <p className="text-sm font-bold mb-2" style={{ color: 'var(--fg)' }}>Quick Help</p>
-                <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--fg-muted)' }}>
-                  For order tracking, returns, and common questions, check our FAQ page first — you might find an instant answer.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <a href="/faq"
-                    className="inline-block text-xs font-bold px-4 py-2 rounded-full transition-all hover:opacity-90"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                    Visit FAQ →
-                  </a>
-                  <a href="/support"
-                    className="inline-block text-xs font-bold px-4 py-2 rounded-full transition-all hover:opacity-90"
-                    style={{ background: 'var(--bg-card)', color: 'var(--fg)', border: '1px solid var(--border)' }}>
-                    Raise Ticket
-                  </a>
-                </div>
-              </div>
+            <div className="ui-card-soft px-5 py-5">
+              <p className="ui-heading text-lg mb-2">Quick help</p>
+              <p className="text-sm leading-relaxed mb-4" style={{ color: 'var(--fg-muted)' }}>
+                For tracking, returns and common questions, you may find an instant answer here.
+              </p>
+              <ul className="space-y-2">
+                {[
+                  { href: '/faq', label: 'Visit FAQ' },
+                  { href: '/track-order', label: 'Track order' },
+                  { href: '/refund-policy', label: 'Returns & refunds' },
+                ].map((l) => (
+                  <li key={l.href}>
+                    <Link href={l.href} className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold transition-colors hover:text-[var(--brand)]"
+                      style={{ background: 'var(--surface)', color: 'var(--fg)' }}>
+                      {l.label} <ArrowRight size={15} style={{ color: 'var(--brand)' }} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </ScrollReveal>
+          </aside>
 
           {/* Form */}
-          <ScrollReveal animation="fade-left">
+          <section className="md:col-span-8 order-1 md:order-2">
             {submitted ? (
-              <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-center rounded-2xl p-8"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <div className="w-16 h-16 rounded-full flex items-center justify-center mb-5"
-                  style={{ background: 'rgba(34,197,94,0.1)' }}>
-                  <CheckCircle size={32} style={{ color: '#22c55e' }} />
+              <div className="ui-card px-6 py-12 sm:p-14 text-center">
+                <div className="w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center" style={{ background: 'var(--ok-soft)', color: 'var(--ok)' }}>
+                  <CheckCircle size={30} />
                 </div>
-                <h2 className="text-xl font-black mb-2" style={{ color: 'var(--fg)' }}>Message Sent!</h2>
-                <p className="text-sm mb-6" style={{ color: 'var(--fg-muted)' }}>
-                  We've received your message and will get back to you within 24 hours.
+                <h2 className="ui-heading text-3xl mb-3">Message sent.</h2>
+                <p className="text-[15px] mb-8 max-w-sm mx-auto" style={{ color: 'var(--fg-muted)' }}>
+                  We&apos;ve received your message and will get back to you within 24 hours.
                 </p>
-                <button
-                  onClick={() => { setSubmitted(false); setForm({ name: '', email: '', phone: '', subject: '', message: '' }); }}
-                  className="px-6 py-2.5 rounded-full font-bold text-sm transition-all hover:opacity-90"
-                  style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                  Send Another
-                </button>
+                <button onClick={() => { setSubmitted(false); setForm(EMPTY); }} className="ui-btn-ghost">Send Another</button>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl p-6 sm:p-8"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <h2 className="text-lg font-black mb-2" style={{ color: 'var(--fg)' }}>Send a Message</h2>
+              <form onSubmit={handleSubmit} className="ui-card px-5 sm:px-8 py-7 space-y-5">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="ui-heading text-2xl">Send a message</h2>
+                  <span className="text-xs" style={{ color: 'var(--fg-subtle)' }}>* required</span>
+                </div>
+
+                {error && (
+                  <p role="alert" className="text-sm font-medium px-4 py-3 rounded-xl" style={{ color: 'var(--bad)', background: 'var(--bad-soft)' }}>
+                    {error}
+                  </p>
+                )}
+                {/* Hidden from people; bots that fill it are ignored */}
+                <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden"
+                  value={form.website} onChange={set('website')} />
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Name *</label>
-                    <input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      placeholder="Your full name"
-                      className="input-field" />
+                    <Label htmlFor="c-name">Name *</Label>
+                    <input id="c-name" required autoComplete="name" value={form.name} onChange={set('name')} placeholder="Your full name" className="ui-input" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Email *</label>
-                    <input required type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                      placeholder="you@example.com"
-                      className="input-field" />
+                    <Label htmlFor="c-email">Email *</Label>
+                    <input id="c-email" required type="email" autoComplete="email" value={form.email} onChange={set('email')} placeholder="you@example.com" className="ui-input" />
                   </div>
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Phone</label>
-                    <input type="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                      placeholder="+91 98765 43210"
-                      className="input-field" />
+                    <Label htmlFor="c-phone">Phone</Label>
+                    <input id="c-phone" type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={set('phone')} placeholder="10-digit mobile number" className="ui-input" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Subject *</label>
-                    <select required value={form.subject} onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
-                      className="input-field cursor-pointer">
+                    <Label htmlFor="c-subject">Subject *</Label>
+                    <select id="c-subject" required value={form.subject} onChange={set('subject')} className="ui-input cursor-pointer">
                       <option value="">Select a topic</option>
-                      <option value="order">Order Issue</option>
-                      <option value="return">Return / Refund</option>
-                      <option value="product">Product Query</option>
-                      <option value="payment">Payment Issue</option>
-                      <option value="other">Other</option>
+                      {TOPICS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Message *</label>
-                  <textarea required value={form.message} onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
-                    placeholder="Describe your issue or question in detail…"
-                    rows={5}
-                    className="input-field resize-none" />
+                  <Label htmlFor="c-ref">Order reference (if about an order)</Label>
+                  <input id="c-ref" value={form.order_ref} onChange={set('order_ref')} placeholder="WAR-1A2B3C4D" className="ui-input" />
                 </div>
 
-                <button type="submit" disabled={loading}
-                  className="w-full py-3.5 rounded-xl font-bold text-sm uppercase tracking-wider flex items-center justify-center gap-2 transition-all hover:opacity-90 disabled:opacity-60"
-                  style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                  {loading ? (
-                    <div className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin"
-                      style={{ borderColor: 'var(--primary-fg)', borderTopColor: 'transparent' }} />
-                  ) : (
-                    <><Send size={15} /> Send Message</>
-                  )}
+                <div>
+                  <Label htmlFor="c-message">Message *</Label>
+                  <textarea id="c-message" required value={form.message} onChange={set('message')}
+                    placeholder="Describe your issue or question in detail…" rows={6} className="ui-input resize-none" />
+                </div>
+
+                <button type="submit" disabled={loading} className="ui-btn w-full sm:w-auto !px-10 disabled:opacity-60">
+                  {loading ? <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <>Send Message <ArrowRight size={15} /></>}
                 </button>
               </form>
             )}
-          </ScrollReveal>
+          </section>
         </div>
       </div>
     </main>

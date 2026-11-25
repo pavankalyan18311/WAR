@@ -7,7 +7,7 @@ export interface Category {
   id: string;
   name: string;
   slug: string;
-  description?: string;
+  description?: string | null;
   parent_id?: string | null;
   image?: string;
   itemCount?: number;
@@ -225,12 +225,6 @@ export interface ProductFilters {
 }
 
 // ─── AI Types ─────────────────────────────────────────────────────────────────
-export interface SizeRecommendation {
-  recommended_size: SizeEnum;
-  confidence: number;
-  fit_notes: string[];
-}
-
 export interface TryOnResult {
   job_id: string;
   status: 'processing' | 'completed' | 'failed';

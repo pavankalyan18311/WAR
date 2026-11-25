@@ -17,12 +17,9 @@ test.describe('Homepage', () => {
     await expect(page).toHaveURL(/\/products/)
   })
 
-  test('renders category cards', async ({ page }) => {
-    // Category section
-    await expect(page.getByText(/shop by category/i)).toBeVisible()
-    const categoryLinks = page.locator('a[href*="/products?category"]')
-    const count = await categoryLinks.count()
-    expect(count).toBeGreaterThanOrEqual(5)
+  test('shows the "New in" section with its shop link', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: /the latest drop/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /shop all new/i })).toHaveAttribute('href', /\/products/)
   })
 
   test('shows new arrivals product grid', async ({ page }) => {
@@ -44,7 +41,7 @@ test.describe('Homepage', () => {
   test('header is visible and sticky', async ({ page }) => {
     const header = page.locator('header')
     await expect(header).toBeVisible()
-    await expect(header.getByRole('link', { name: /THREADX/i })).toBeVisible()
+    await expect(header.getByRole('link', { name: /WAR/ }).first()).toBeVisible()
   })
 
   test('footer has navigation links', async ({ page }) => {

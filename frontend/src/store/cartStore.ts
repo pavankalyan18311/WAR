@@ -7,6 +7,17 @@ import {
   clearCartInDb,
   fetchUserCartFromDb,
 } from '@/lib/supabase/queries';
+import { computeTotals, type StoreSettings } from '@/lib/checkout/pricing';
+import { DEFAULT_STORE_SETTINGS, loadStoreSettings } from '@/lib/checkout/storeSettings';
+import { createClient } from '@/lib/supabase/client';
+import type { CartQuote } from '@/lib/checkout/quote';
+import { formatPrice } from '@/lib/utils';
+
+/** Customers can buy as many as are in stock (the server re-checks stock at checkout). */
+function clampQty(quantity: number, variant?: { stock_quantity?: number }) {
+  const stock = variant?.stock_quantity ?? Infinity;
+  return Math.max(0, Math.min(quantity, stock));
+}
 
 interface CartStore {
   items: CartItem[];
@@ -16,6 +27,8 @@ interface CartStore {
   discountType: 'percentage' | 'flat' | 'free_shipping' | null;
   userId: string | null;
   syncing: boolean;
+  shippingSettings: StoreSettings;
+  loadShippingSettings: () => Promise<void>;
 
   setUserId: (userId: string | null) => void;
   addItem: (product: Product, variant: ProductVariant, quantity?: number) => void;
@@ -31,6 +44,15 @@ interface CartStore {
   getTotalItems: () => number;
   initializeUserCart: (userId: string) => Promise<void>;
   resetUserCart: () => void;
+  /** Per-variant problems from the last server check, e.g. { v1: 'No longer available' } */
+  lineIssues: Record<string, string>;
+  /** One-off messages about changes made to the cart (price changed, coupon removed…) */
+  notices: string[];
+  dismissNotices: () => void;
+  /** Asks the server for current prices/stock/coupon and updates the cart. Null if it couldn't be reached. */
+  refreshQuote: () => Promise<CartQuote | null>;
+  /** True when an item is unavailable or was reduced — the customer must review before checkout. */
+  hasBlockingIssues: () => boolean;
 }
 
 export const useCartStore = create<CartStore>()(
@@ -43,6 +65,87 @@ export const useCartStore = create<CartStore>()(
       discountType: null,
       userId: null,
       syncing: false,
+      shippingSettings: DEFAULT_STORE_SETTINGS,
+      lineIssues: {},
+      notices: [],
+
+      dismissNotices: () => set({ notices: [] }),
+
+      hasBlockingIssues: () => {
+        const { items, lineIssues } = get();
+        return items.some((i) => lineIssues[(i.variant_id || i.variant?.variant_id) as string] === 'No longer available');
+      },
+
+      refreshQuote: async () => {
+        const { items, couponCode } = get();
+        if (items.length === 0) {
+          set({ lineIssues: {} });
+          return null;
+        }
+        let quote: CartQuote;
+        try {
+          const res = await fetch('/api/orders/quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              items: items.map((i) => ({ variant_id: i.variant_id || i.variant?.variant_id, quantity: i.quantity })),
+              coupon_code: couponCode || undefined,
+            }),
+          });
+          if (!res.ok) return null;
+          quote = await res.json();
+        } catch {
+          return null; // offline — keep the cart as it is; the server re-checks at checkout anyway
+        }
+
+        const byVariant = new Map(quote.lines.map((l) => [l.variant_id, l]));
+        const lineIssues: Record<string, string> = {};
+        const notices: string[] = [];
+        const { userId } = get();
+
+        const nextItems = get().items.map((item) => {
+          const variantId = (item.variant_id || item.variant?.variant_id) as string;
+          const line = byVariant.get(variantId);
+          if (!line) return item;
+          const name = item.product?.name || line.name || 'An item';
+
+          if (line.status === 'unavailable') {
+            lineIssues[variantId] = 'No longer available';
+            return { ...item, variant: { ...item.variant, stock_quantity: 0 } };
+          }
+
+          let next = item;
+          if (line.unit_price > 0 && Number(item.price) !== line.unit_price) {
+            notices.push(`The price of ${name} changed to ${formatPrice(line.unit_price)}.`);
+            next = { ...next, price: line.unit_price, variant: { ...next.variant, price: line.unit_price } };
+          }
+          if (line.status === 'reduced') {
+            lineIssues[variantId] = `Only ${line.available} left — quantity reduced`;
+            next = { ...next, quantity: line.quantity };
+            if (userId) syncCartItemToDb(userId, variantId, line.quantity).catch(() => {});
+          }
+          return { ...next, variant: { ...next.variant, stock_quantity: line.available } };
+        });
+
+        const couponPatch: Partial<CartStore> = {};
+        if (quote.coupon && !quote.coupon.ok) {
+          notices.push(`Coupon ${quote.coupon.code} was removed: ${quote.coupon.error}`);
+          Object.assign(couponPatch, { couponCode: '', discount: 0, discountType: null });
+        } else if (quote.coupon?.ok && get().discountType !== 'free_shipping') {
+          couponPatch.discount = quote.totals.discount;
+        }
+
+        set({ items: nextItems, lineIssues, notices: [...get().notices, ...notices], ...couponPatch });
+        return quote;
+      },
+
+      loadShippingSettings: async () => {
+        try {
+          set({ shippingSettings: await loadStoreSettings(createClient()) });
+        } catch (err) {
+          console.error('Failed to load shipping settings:', err);
+        }
+      },
 
       setUserId: (userId) => set({ userId }),
 
@@ -52,11 +155,12 @@ export const useCartStore = create<CartStore>()(
           (i) => i.variant?.variant_id === variant.variant_id || i.variant_id === variant.variant_id
         );
 
-        let targetQty = quantity;
+        let targetQty = clampQty(quantity, variant);
+        if (targetQty < 1) return;
         let nextItems: CartItem[] = [];
 
         if (existing) {
-          targetQty = Math.min(existing.quantity + quantity, 10);
+          targetQty = clampQty(existing.quantity + quantity, variant);
           nextItems = items.map((i) =>
             i.variant?.variant_id === variant.variant_id || i.variant_id === variant.variant_id
               ? { ...i, quantity: targetQty }
@@ -68,7 +172,7 @@ export const useCartStore = create<CartStore>()(
             variant_id: variant.variant_id,
             product,
             variant,
-            quantity,
+            quantity: targetQty,
             price: Number(variant.price || product.price || 0),
           };
           nextItems = [...items, newItem];
@@ -110,7 +214,8 @@ export const useCartStore = create<CartStore>()(
         }
 
         const targetItem = items.find((i) => i.cart_item_id === cart_item_id || i.id === cart_item_id);
-        const nextQty = Math.min(quantity, 10);
+        const nextQty = clampQty(quantity, targetItem?.variant);
+        if (nextQty < 1) return; // out of stock: leave it (the cart shows it as unavailable)
 
         set((state) => ({
           items: state.items.map((i) =>
@@ -154,13 +259,16 @@ export const useCartStore = create<CartStore>()(
       removeCoupon: () => set({ couponCode: '', discount: 0, discountType: null }),
 
       getSummary: () => {
-        const { items, discount, discountType } = get();
-        const subtotal = items.reduce((sum, i) => sum + (Number(i.price) || 0) * i.quantity, 0);
-        const isFreeShipping = discountType === 'free_shipping';
-        const shipping = subtotal >= 999 || isFreeShipping ? 0 : 99;
-        const tax = 0;
-        const total = Math.max(0, subtotal - discount + shipping + tax);
-        return { subtotal, discount, shipping, tax, total };
+        // Preview only — the server re-prices everything at checkout.
+        const { items, discount, discountType, shippingSettings } = get();
+        const lines = items.map((i) => ({ unit_price: Number(i.price) || 0, quantity: i.quantity }));
+        // The validated coupon amount is applied as a flat discount for the preview.
+        const coupon = discountType === 'free_shipping'
+          ? { discount_type: 'free_shipping' as const, discount_value: 0, max_discount_amount: null }
+          : discount > 0
+            ? { discount_type: 'flat' as const, discount_value: discount, max_discount_amount: null }
+            : null;
+        return computeTotals(lines, shippingSettings, coupon);
       },
 
       getTotalItems: () =>
@@ -172,11 +280,14 @@ export const useCartStore = create<CartStore>()(
         set({ userId, syncing: true });
 
         try {
-          // If guest user had items locally, merge them into Supabase database cart
+          // Merge this browser's (guest) cart into the account cart: one line per variant,
+          // keeping the larger quantity so neither cart loses items.
           if (guestItems.length > 0) {
+            const saved = await fetchUserCartFromDb(userId);
+            const savedQty = new Map<string, number>((saved ?? []).map((i: any) => [i.variant_id || i.variant?.variant_id, Number(i.quantity) || 0]));
             for (const item of guestItems) {
               const variantId = item.variant_id || item.variant?.variant_id;
-              if (variantId) {
+              if (variantId && item.quantity > (savedQty.get(variantId) ?? 0)) {
                 await syncCartItemToDb(userId, variantId, item.quantity);
               }
             }
@@ -199,6 +310,9 @@ export const useCartStore = create<CartStore>()(
         set({ userId: null, items: [], couponCode: '', discount: 0, discountType: null });
       },
     }),
-    { name: 'war-cart' }
+    {
+      name: 'war-cart',
+      partialize: ({ shippingSettings: _settings, isOpen: _open, syncing: _syncing, lineIssues: _issues, notices: _notices, ...rest }) => rest,
+    }
   )
 );

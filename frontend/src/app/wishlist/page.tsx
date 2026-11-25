@@ -1,20 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
-import { Heart, ShoppingBag, Trash2, ArrowRight, Star, User, Package, LogOut } from 'lucide-react';
+import { ArrowRight, Heart, ShoppingBag, X } from 'lucide-react';
+import ProductImage from '@/components/product/ProductImage';
+import { AccountShell } from '@/components/account/AccountShell';
 import { useWishlistStore } from '@/store/wishlistStore';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { formatPrice } from '@/lib/utils';
+import { priceDisplay } from '@/lib/productPrice';
+import { isVariantAvailable } from '@/lib/stock';
 import type { WishlistItem } from '@/types';
-
-const NAV_LINKS = [
-  { href: '/account/profile', label: 'Profile & Addresses', icon: User },
-  { href: '/account/orders', label: 'My Orders', icon: Package },
-  { href: '/wishlist', label: 'Wishlist', icon: Heart, active: true },
-];
 
 export default function WishlistPage() {
   const [mounted, setMounted] = useState(false);
@@ -25,240 +22,107 @@ export default function WishlistPage() {
   const removeItem = useWishlistStore((s) => s.removeItem);
   const addCartItem = useCartStore((s) => s.addItem);
 
+  /** First size that can actually be bought (not just the first variant). */
+  const buyableVariant = (item: WishlistItem) => item.product.variants?.find(isVariantAvailable);
+
   const handleMoveToCart = (item: WishlistItem) => {
-    const defaultVariant = item.product.variants?.[0];
-    if (defaultVariant) {
-      addCartItem(item.product, defaultVariant, 1);
+    const variant = buyableVariant(item);
+    if (variant) {
+      addCartItem(item.product, variant, 1);
       removeItem(item.product.product_id);
     }
   };
 
   if (!mounted) {
     return (
-      <main className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
-        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--primary)' }} />
-      </main>
+      <div className="w-full ui-page">
+        <div className="max-w-6xl mx-auto w-full px-4 sm:px-8 py-12">
+          <div className="h-10 w-56 skeleton mb-10" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[0, 1, 2, 3].map((i) => <div key={i} className="aspect-[4/5] skeleton rounded-2xl" />)}</div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 py-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-bold tracking-[0.3em] uppercase mb-1" style={{ color: 'var(--accent)' }}>Dashboard</p>
-              <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>
-                My Wishlist
-              </h1>
-              <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-                {items.length === 0 ? 'No saved items' : `${items.length} item${items.length !== 1 ? 's' : ''} saved`}
-              </p>
-            </div>
-            <Heart
-              size={28}
-              style={{ color: items.length > 0 ? 'var(--danger)' : 'var(--fg-subtle)', fill: items.length > 0 ? 'var(--danger)' : 'none' }}
-            />
-          </div>
+    <AccountShell
+      active="wishlist"
+      title="My Wishlist"
+      subtitle={items.length === 0 ? 'No saved items' : `${items.length} item${items.length !== 1 ? 's' : ''} saved`}
+      onLogout={async () => { await logout(); }}
+    >
+      {items.length === 0 ? (
+        <div className="ui-card py-14 px-6 text-center">
+          <span className="mx-auto mb-5 w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+            <Heart size={28} />
+          </span>
+          <h2 className="ui-heading text-2xl sm:text-3xl mb-2" style={{ color: 'var(--fg)' }}>Your wishlist is empty</h2>
+          <p className="text-[15px] mb-7 max-w-sm mx-auto" style={{ color: 'var(--fg-muted)' }}>
+            Save items you love and come back to them anytime.
+          </p>
+          <Link href="/products" className="ui-btn">Browse Products <ArrowRight size={16} /></Link>
         </div>
-      </div>
-
-      {/* Mobile Navigation Bar */}
-      <div className="md:hidden border-b overflow-x-auto no-scrollbar" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-        <div className="flex px-5 py-2.5 gap-2 min-w-max">
-          {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
-            <Link key={href} href={href}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all"
-              style={{
-                background: active ? 'var(--primary)' : 'var(--bg-elevated)',
-                color: active ? 'var(--primary-fg)' : 'var(--fg-muted)',
-                border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
-              }}>
-              <Icon size={14} />
-              {label}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10">
-        <div className="flex gap-8">
-          {/* Desktop Sidebar Navigation */}
-          <aside className="hidden md:block w-48 flex-shrink-0">
-            <nav className="space-y-1">
-              {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
-                <Link key={href} href={href}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all"
-                  style={{
-                    background: active ? 'var(--bg-elevated)' : 'transparent',
-                    color: active ? 'var(--fg)' : 'var(--fg-muted)',
-                    border: active ? '1px solid var(--border)' : '1px solid transparent',
-                  }}>
-                  <Icon size={15} />
-                  {label}
-                </Link>
-              ))}
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-70"
-                onClick={async () => { await logout(); }}
-                style={{ color: 'var(--danger)' }}
-              >
-                <LogOut size={15} />
-                Sign Out
-              </button>
-            </nav>
-          </aside>
-
-          {/* Main Wishlist Content */}
-          <div className="flex-1 min-w-0">
-        {items.length === 0 ? (
-          /* ── Empty state ── */
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div
-              className="w-24 h-24 rounded-full flex items-center justify-center mb-6"
-              style={{ background: 'var(--bg-elevated)' }}
-            >
-              <Heart size={40} style={{ color: 'var(--fg-subtle)' }} />
-            </div>
-            <h2 className="text-xl font-bold mb-2" style={{ color: 'var(--fg)' }}>Your wishlist is empty</h2>
-            <p className="text-sm mb-8 max-w-xs" style={{ color: 'var(--fg-muted)' }}>
-              Save items you love and come back to them anytime.
-            </p>
-            <Link
-              href="/products"
-              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold text-sm uppercase tracking-wider transition-all hover:opacity-90 hover:-translate-y-0.5"
-              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-            >
-              Browse Products <ArrowRight size={15} />
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+      ) : (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
             {items.map((item) => {
               const { product } = item;
-              const discountPercent =
-                product.discount_price && product.price > product.discount_price
-                  ? Math.round(((product.price - product.discount_price) / product.price) * 100)
-                  : null;
-              const defaultVariant = product.variants?.[0];
-              const imgSrc = product.images?.[0]?.url || 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600';
+              const price = priceDisplay(product);
+              const variant = buyableVariant(item);
+              const href = `/products/${product.slug}`;
 
               return (
-                <div
-                  key={item.wishlist_item_id}
-                  className="rounded-2xl overflow-hidden group"
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  {/* Image */}
-                  <Link href={`/products/${product.slug}`} className="block relative aspect-[3/4] overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
-                    <Image
-                      src={imgSrc}
-                      alt={product.name}
-                      fill
-                      className="object-cover group-hover:scale-105 transition-transform duration-500"
-                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-                    />
-                    {discountPercent && (
-                      <span
-                        className="absolute top-3 left-3 text-xs px-2.5 py-1 rounded-full font-bold"
-                        style={{ background: 'var(--danger)', color: '#fff' }}
-                      >
-                        -{discountPercent}%
-                      </span>
-                    )}
-                    {!product.is_in_stock && (
-                      <span
-                        className="absolute top-3 left-3 text-xs px-2.5 py-1 rounded-full font-bold"
-                        style={{ background: 'rgba(0,0,0,0.7)', color: '#fff' }}
-                      >
-                        Sold Out
-                      </span>
-                    )}
-                  </Link>
+                <article key={item.wishlist_item_id} className="group ui-card overflow-hidden flex flex-col">
+                  <div className="relative aspect-[4/5] overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                    <Link href={href} className="absolute inset-0" aria-label={product.name}>
+                      <ProductImage src={product.images?.[0]?.url} alt={product.name}
+                        className="object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                        sizes="(max-width: 1024px) 50vw, 25vw" />
+                    </Link>
+                    <div className="absolute top-2.5 left-2.5 flex flex-col items-start gap-1.5 pointer-events-none">
+                      {!variant ? (
+                        <span className="ui-chip" style={{ background: 'var(--fg)', color: 'var(--bg)' }}>Sold out</span>
+                      ) : price.mrp ? (
+                        <span className="ui-chip" style={{ background: 'var(--brand)', color: 'var(--brand-fg)' }}>−{price.percent}%</span>
+                      ) : null}
+                    </div>
+                    <button type="button" onClick={() => removeItem(product.product_id)} aria-label="Remove from wishlist"
+                      className="absolute top-2.5 right-2.5 w-9 h-9 rounded-full flex items-center justify-center shadow-sm transition-colors hover:text-[var(--bad)]"
+                      style={{ background: 'var(--surface)', color: 'var(--fg)' }}>
+                      <X size={16} />
+                    </button>
+                  </div>
 
-                  {/* Info */}
-                  <div className="p-4">
-                    {product.category && (
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--accent)' }}>
-                        {product.category.name}
-                      </p>
-                    )}
-                    <Link
-                      href={`/products/${product.slug}`}
-                      className="text-sm font-semibold leading-tight line-clamp-2 hover:underline block mb-2"
-                      style={{ color: 'var(--fg)' }}
-                    >
+                  <div className="p-3 sm:p-4 flex flex-col flex-1">
+                    {product.category && <p className="text-xs font-medium mb-0.5" style={{ color: 'var(--fg-subtle)' }}>{product.category.name}</p>}
+                    <Link href={href} className="text-sm sm:text-[15px] font-semibold leading-snug line-clamp-2 hover:text-[var(--brand)]" style={{ color: 'var(--fg)' }}>
                       {product.name}
                     </Link>
-
-                    {product.rating && (
-                      <div className="flex items-center gap-1 mb-2">
-                        <Star size={11} style={{ color: '#f59e0b', fill: '#f59e0b' }} />
-                        <span className="text-[11px] font-semibold" style={{ color: 'var(--fg-muted)' }}>{product.rating}</span>
-                        {product.review_count && (
-                          <span className="text-[11px]" style={{ color: 'var(--fg-subtle)' }}>({product.review_count})</span>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex items-baseline gap-2 mb-4">
-                      {product.discount_price && product.discount_price < product.price ? (
-                        <>
-                          <span className="text-base font-black" style={{ color: 'var(--fg)' }}>{formatPrice(product.discount_price)}</span>
-                          <span className="text-xs line-through" style={{ color: 'var(--fg-subtle)' }}>{formatPrice(product.price)}</span>
-                        </>
-                      ) : (
-                        <span className="text-base font-black" style={{ color: 'var(--fg)' }}>{formatPrice(product.price)}</span>
-                      )}
+                    <div className="mt-1.5 flex items-baseline flex-wrap gap-x-2">
+                      <span className="text-[15px] font-extrabold" style={{ color: 'var(--fg)' }}>{formatPrice(price.price)}</span>
+                      {price.mrp && <span className="text-sm line-through" style={{ color: 'var(--fg-subtle)' }}>{formatPrice(price.mrp)}</span>}
+                      {price.mrp && <span className="text-sm font-bold" style={{ color: 'var(--ok)' }}>{price.percent}% off</span>}
                     </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleMoveToCart(item)}
-                        disabled={!product.is_in_stock || !defaultVariant}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-                      >
-                        <ShoppingBag size={13} />
-                        {product.is_in_stock ? 'Move to Cart' : 'Out of Stock'}
-                      </button>
-                      <button
-                        onClick={() => removeItem(product.product_id)}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all hover:scale-105"
-                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                        aria-label="Remove from wishlist"
-                      >
-                        <Trash2 size={14} style={{ color: 'var(--danger)' }} />
+                    <div className="mt-auto pt-3.5">
+                      <button type="button" onClick={() => handleMoveToCart(item)} disabled={!variant}
+                        className="ui-btn w-full !py-2.5 text-sm">
+                        {variant && <ShoppingBag size={15} />}
+                        {variant ? `Move to Cart${variant.size ? ` · ${variant.size}` : ''}` : 'Out of Stock'}
                       </button>
                     </div>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
-        )}
 
-        {/* Continue shopping */}
-        {items.length > 0 && (
-          <div className="mt-12 text-center">
-            <Link
-              href="/products"
-              className="inline-flex items-center gap-2 text-sm font-semibold hover:underline"
-              style={{ color: 'var(--fg-muted)' }}
-            >
-              <ArrowRight size={14} /> Continue Shopping
+          <div className="mt-10 text-center">
+            <Link href="/products" className="ui-btn-ghost">
+              Continue Shopping <ArrowRight size={15} />
             </Link>
           </div>
-        )}
-          </div>
-        </div>
-      </div>
-    </main>
+        </>
+      )}
+    </AccountShell>
   );
 }

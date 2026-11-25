@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import { Session, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { useCartStore } from "@/store/cartStore";
+import { useWishlistStore } from "@/store/wishlistStore";
 
 interface RegisterData {
   firstName: string;
@@ -59,9 +60,10 @@ export const useAuthStore = create<AuthStore>()(
 
       submitRegistration: async (data) => {
         const supabase = createClient();
+        // Keep only what the OTP step needs — never hold the password in (persisted) state.
         set({
           loading: true,
-          pendingRegistration: data,
+          pendingRegistration: { ...data, password: '', confirmPassword: '' },
         });
 
         if (!data.firstName.trim()) throw new Error("First name is required.");
@@ -81,7 +83,6 @@ export const useAuthStore = create<AuthStore>()(
               last_name: data.lastName,
               phone: data.phone ?? "",
               dob: data.dob,
-              role: "customer",
             },
           },
         });
@@ -164,7 +165,10 @@ export const useAuthStore = create<AuthStore>()(
         });
 
         // Initialize user cart persistence in DB
-        useCartStore.getState().initializeUserCart(data.user.id);
+        if (data.user) {
+          useCartStore.getState().initializeUserCart(data.user.id);
+          useWishlistStore.getState().syncFromDb(data.user.id);
+        }
       },
 
       // ===============================
@@ -329,6 +333,7 @@ export const useAuthStore = create<AuthStore>()(
 
           // Sync & Restore Database Cart
           useCartStore.getState().initializeUserCart(data.user.id);
+          useWishlistStore.getState().syncFromDb(data.user.id);
 
           return { role: resolvedRole };
         } catch (error) {
@@ -357,6 +362,7 @@ export const useAuthStore = create<AuthStore>()(
 
         // Clear local cart state upon logout
         useCartStore.getState().resetUserCart();
+        useWishlistStore.getState().clearItems();
       },
 
       // ===============================
@@ -393,6 +399,7 @@ export const useAuthStore = create<AuthStore>()(
 
           // Restore user database cart if session is active
           useCartStore.getState().initializeUserCart(session.user.id);
+          useWishlistStore.getState().syncFromDb(session.user.id);
         }
 
         set({
@@ -413,6 +420,16 @@ export const useAuthStore = create<AuthStore>()(
         const currentUser = get().user;
         if (!currentUser) throw new Error('Not authenticated');
 
+        const { data: authData, error: authError } = await supabase.auth.updateUser({
+          data: {
+            first_name: data.firstName,
+            last_name: data.lastName,
+            phone: data.phone,
+            dob: data.dob,
+          },
+        });
+        if (authError) throw authError;
+
         const { error } = await supabase
           .from('profiles')
           .update({
@@ -423,6 +440,7 @@ export const useAuthStore = create<AuthStore>()(
           .eq('id', currentUser.id);
 
         if (error) throw error;
+        if (authData.user) set({ user: authData.user });
       },
 
       resetFlow: () => set({ flowStage: 'register', pendingRegistration: null }),

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createClient } from '@/lib/supabase/client';
 
 export type AuthPopupMediaType = 'image' | 'video';
 export type AuthPopupSessionBehavior = 'once-per-session' | 'always';
@@ -17,31 +17,54 @@ export interface AuthPopupConfig {
 
 interface AuthPopupStore {
   config: AuthPopupConfig;
+  /** Loads the popup settings the admin saved (shared by all shoppers). */
+  loadConfig: () => Promise<void>;
+  /** Edits the local draft (admin settings page). */
   updateConfig: (patch: Partial<AuthPopupConfig>) => void;
+  /** Saves the draft for everyone via the admin API. */
+  saveConfig: () => Promise<void>;
   resetDefaults: () => void;
 }
 
-const DEFAULT_CONFIG: AuthPopupConfig = {
+export const DEFAULT_POPUP_CONFIG: AuthPopupConfig = {
   enabled: true,
   delayMs: 10000,
   mediaType: 'image',
-  mediaUrl: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=1400&q=80',
-  headline: 'Unlock Your Private Style Edit',
-  description: 'Join the ThreadX circle for early access drops, members-only rewards, and a personalized fit journey.',
+  mediaUrl: '',
+  headline: 'Join WAR — Without Any Regrets',
+  description: 'Create your account to get early access to new drops and members-only offers.',
   ctaText: 'Continue With Email Verification',
   sessionBehavior: 'once-per-session',
 };
 
-export const useAuthPopupStore = create<AuthPopupStore>()(
-  persist(
-    (set) => ({
-      config: DEFAULT_CONFIG,
-      updateConfig: (patch) => set((state) => ({ config: { ...state.config, ...patch } })),
-      resetDefaults: () => set({ config: DEFAULT_CONFIG }),
-    }),
-    {
-      name: 'threadx-auth-popup-config',
-      partialize: (state) => ({ config: state.config }),
+export const useAuthPopupStore = create<AuthPopupStore>()((set, get) => ({
+  config: DEFAULT_POPUP_CONFIG,
+
+  loadConfig: async () => {
+    const { data, error } = await createClient()
+      .from('store_settings')
+      .select('auth_popup')
+      .eq('id', 1)
+      .maybeSingle();
+    if (error) {
+      console.warn('Could not load popup settings:', error.message);
+      return;
     }
-  )
-);
+    const saved = (data?.auth_popup ?? {}) as Partial<AuthPopupConfig>;
+    set({ config: { ...DEFAULT_POPUP_CONFIG, ...saved } });
+  },
+
+  updateConfig: (patch) => set((state) => ({ config: { ...state.config, ...patch } })),
+
+  saveConfig: async () => {
+    const res = await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auth_popup: get().config }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not save settings.');
+  },
+
+  resetDefaults: () => set({ config: DEFAULT_POPUP_CONFIG }),
+}));

@@ -3,6 +3,8 @@
 import { useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuthStore } from '@/store/authStore';
+import { useCartStore } from '@/store/cartStore';
+import { useAuthPopupStore } from '@/store/authPopupStore';
 
 /**
  * Invisible component that runs once at app startup.
@@ -16,6 +18,10 @@ export default function AuthInitializer() {
 
     // Verify session on mount — clears stale tokens if refresh fails
     useAuthStore.getState().getSession();
+
+    // Admin-configured shipping rules (free-shipping threshold, fee) for cart previews
+    useCartStore.getState().loadShippingSettings();
+    useAuthPopupStore.getState().loadConfig();
 
     // Keep Zustand state in sync with Supabase auth events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {

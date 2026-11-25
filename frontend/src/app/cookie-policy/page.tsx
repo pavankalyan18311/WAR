@@ -1,19 +1,20 @@
 import { LegalPage, Section } from '@/components/ui/LegalPage';
+import { storePolicy } from '@/lib/storePolicy';
 
 export default function CookiePolicyPage() {
   return (
-    <LegalPage title="Cookie Policy" lastUpdated="June 12, 2026">
+    <LegalPage title="Cookie Policy" lastUpdated={storePolicy.lastUpdated}>
       <Section title="What Are Cookies">
-        <p>Cookies are small text files stored on your device when you visit our website. They help us remember your preferences, keep your cart active, and understand how you use ThreadX so we can improve your experience.</p>
+        <p>Cookies are small text files stored on your device when you visit a website. We use them (and similar browser storage) only to make the site work — keeping you signed in, remembering your cart and your preferences.</p>
       </Section>
       <Section title="Types of Cookies We Use">
         <p><strong>Essential Cookies</strong>: Required for the site to function. These keep your session active, maintain your cart, and process authentication. You cannot opt out of these.</p>
-        <p><strong>Analytics Cookies</strong>: Help us understand traffic patterns and user behaviour (anonymised). We use this data to improve the platform.</p>
-        <p><strong>Preference Cookies</strong>: Remember your choices such as theme (dark/light mode), language, and recently viewed products.</p>
-        <p><strong>Marketing Cookies</strong>: Used to show you relevant ads on external platforms (only with your consent).</p>
+        <p><strong>Payment</strong>: When you pay online, Razorpay may set cookies needed to complete the payment securely.</p>
+        <p><strong>Preferences</strong>: Your browser stores choices such as theme (dark/light mode), your cart, wishlist and recently viewed products.</p>
+        <p>We do <strong>not</strong> use advertising, marketing or analytics tracking cookies.</p>
       </Section>
       <Section title="Third-Party Cookies">
-        <p>Some cookies are set by third parties such as Google Analytics, Meta Pixel, and Razorpay. These third parties have their own privacy policies. We only enable third-party cookies with your explicit consent.</p>
+        <p>The only third party that may set cookies is our payment gateway, Razorpay, during online payment. Razorpay has its own privacy policy. If we add any analytics or marketing tools in future, we will update this page and ask for your consent first.</p>
       </Section>
       <Section title="Managing Cookies">
         <p>You can control cookies through your browser settings. Note that disabling essential cookies will affect site functionality (your cart may not persist, login sessions may end).</p>

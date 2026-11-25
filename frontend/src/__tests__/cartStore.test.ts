@@ -6,13 +6,14 @@ import type { Product, ProductVariant } from '@/types'
 // ─── Mock data matching actual type shapes ────────────────────────────────────
 const mockProduct: Product = {
   product_id: 'prod-001',
+  id: 'prod-001',
   sku: 'TEST-BLK',
   name: 'Shadow Black Oversized Tee',
   slug: 'shadow-black-oversized',
   description: 'A test product',
   price: 1299,
   discount_price: 899,
-  category_id: 1,
+  category_id: 'cat-1',
   status: 'active',
   images: [{ url: 'https://images.unsplash.com/test.jpg', alt: 'Test', type: 'image' }],
 }
@@ -24,7 +25,8 @@ const mockVariant: ProductVariant = {
   color: 'Black',
   size: 'L',
   stock_quantity: 10,
-  price_override: 899,
+  price: 899,
+  status: 'active',
 }
 
 const mockVariant2: ProductVariant = {
@@ -34,11 +36,15 @@ const mockVariant2: ProductVariant = {
   color: 'Black',
   size: 'XL',
   stock_quantity: 10,
-  price_override: 899,
+  price: 899,
+  status: 'active',
 }
 
 beforeEach(() => {
-  useCartStore.setState({ items: [], couponCode: '', discount: 0 })
+  useCartStore.setState({
+    items: [], couponCode: '', discount: 0,
+    shippingSettings: { free_shipping_threshold: 999, shipping_fee: 99, cod_enabled: true },
+  })
 })
 
 describe('Cart Store — addItem', () => {
@@ -64,12 +70,23 @@ describe('Cart Store — addItem', () => {
     expect(result.current.items).toHaveLength(2)
   })
 
-  it('caps quantity at 5 per variant', () => {
+  it('allows any quantity up to the available stock (no fixed limit)', () => {
     const { result } = renderHook(() => useCartStore())
-    for (let i = 0; i < 7; i++) {
-      act(() => result.current.addItem(mockProduct, mockVariant))
-    }
-    expect(result.current.items[0].quantity).toBe(5)
+    const bigStock = { ...mockVariant, stock_quantity: 50 }
+    act(() => result.current.addItem(mockProduct, bigStock, 12))
+    expect(result.current.items[0].quantity).toBe(12)
+    act(() => result.current.updateQuantity(result.current.items[0].cart_item_id, 40))
+    expect(result.current.items[0].quantity).toBe(40)
+  })
+
+  it('never exceeds the stock left for the variant', () => {
+    const { result } = renderHook(() => useCartStore())
+    const lowStock = { ...mockVariant, stock_quantity: 3 }
+    act(() => result.current.addItem(mockProduct, lowStock, 2))
+    act(() => result.current.addItem(mockProduct, lowStock, 2))
+    expect(result.current.items[0].quantity).toBe(3)
+    act(() => result.current.updateQuantity(result.current.items[0].cart_item_id, 8))
+    expect(result.current.items[0].quantity).toBe(3)
   })
 })
 
@@ -124,10 +141,19 @@ describe('Cart Store — getSummary (pricing)', () => {
   })
 
   it('charges ₹99 shipping when subtotal < 999', () => {
-    const cheapVariant: ProductVariant = { ...mockVariant, price_override: 499 }
+    const cheapVariant: ProductVariant = { ...mockVariant, price: 499 }
     const { result } = renderHook(() => useCartStore())
     act(() => result.current.addItem(mockProduct, cheapVariant, 1))
     expect(result.current.getSummary().shipping).toBe(99)
+  })
+
+  it('uses the admin-configured free-shipping threshold and fee', () => {
+    useCartStore.setState({ shippingSettings: { free_shipping_threshold: 1500, shipping_fee: 79, cod_enabled: true } })
+    const { result } = renderHook(() => useCartStore())
+    act(() => result.current.addItem(mockProduct, mockVariant, 1)) // 899
+    expect(result.current.getSummary()).toMatchObject({ subtotal: 899, shipping: 79, total: 978 })
+    act(() => result.current.addItem(mockProduct, mockVariant, 1)) // 1798 ≥ 1500
+    expect(result.current.getSummary().shipping).toBe(0)
   })
 
   it('returns 0 subtotal for empty cart', () => {

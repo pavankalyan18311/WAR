@@ -31,14 +31,12 @@ describe('calculateDiscount', () => {
     expect(calculateDiscount(999, 999)).toBe(0)
   })
 
-  it('returns negative when discount price is higher (reflects actual behaviour)', () => {
-    // The function has no guard — it returns negative for inverted prices
-    const result = calculateDiscount(500, 600)
-    expect(result).toBeLessThan(0)
+  it('returns 0 (no badge) when the "discounted" price is higher', () => {
+    expect(calculateDiscount(500, 600)).toBe(0)
   })
 
-  it('returns 100 when discounted to zero', () => {
-    expect(calculateDiscount(1000, 0)).toBe(100)
+  it('returns 0 when the discounted price is missing or zero', () => {
+    expect(calculateDiscount(1000, 0)).toBe(0)
   })
 })
 

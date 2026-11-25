@@ -1,374 +1,274 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import {
-  Search,
-  Filter,
-  ChevronDown,
-  Eye,
-  Truck,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  XCircle,
-  Download,
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Search, Eye, Truck, CheckCircle2, Clock, AlertCircle, XCircle, Download, Package } from 'lucide-react';
+import { ordersToCsv, type AdminOrderRow } from '@/lib/admin/orders';
+import { isCountedSale } from '@/lib/analytics';
 
-type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled' | 'Returned';
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  pending: { label: 'Payment not completed', color: '#9ca3af', icon: <AlertCircle size={12} /> },
+  confirmed: { label: 'Confirmed', color: '#6366f1', icon: <CheckCircle2 size={12} /> },
+  processing: { label: 'Packing', color: '#eab308', icon: <Clock size={12} /> },
+  shipped: { label: 'Shipped', color: '#3b82f6', icon: <Truck size={12} /> },
+  delivered: { label: 'Delivered', color: '#22c55e', icon: <CheckCircle2 size={12} /> },
+  cancelled: { label: 'Cancelled', color: '#ef4444', icon: <XCircle size={12} /> },
+  refunded: { label: 'Refunded', color: '#f97316', icon: <XCircle size={12} /> },
+};
+const FULFILMENT_STEPS = ['confirmed', 'processing', 'shipped', 'delivered'];
+const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' };
+const subtle = { background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' };
 
-interface Order {
-  id: string;
-  customer: string;
-  email: string;
-  product: string;
-  amount: number;
-  items: number;
-  status: OrderStatus;
-  payment: string;
-  date: string;
-  city: string;
-  raw_id?: string;
+function StatusBadge({ status }: { status: string }) {
+  const sc = STATUS_CONFIG[status] ?? { label: status, color: '#9ca3af', icon: null };
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium" style={{ background: `${sc.color}1f`, color: sc.color }}>
+      {sc.icon}{sc.label}
+    </span>
+  );
 }
 
-const MOCK_ORDERS: Order[] = [
-  { id: '#WAR-10482', customer: 'Arjun Sharma', email: 'arjun@example.com', product: 'Midnight Oversized Tee × 2', amount: 2998, items: 2, status: 'Delivered', payment: 'UPI', date: '2026-06-09', city: 'Bengaluru' },
-  { id: '#WAR-10481', customer: 'Ravi Kumar', email: 'ravi@example.com', product: 'Essential White Classic', amount: 799, items: 1, status: 'Shipped', payment: 'Card', date: '2026-06-09', city: 'Mumbai' },
-  { id: '#WAR-10480', customer: 'Deepak Nair', email: 'deepak@example.com', product: 'Acid Wash Vintage', amount: 1299, items: 1, status: 'Processing', payment: 'NetBanking', date: '2026-06-08', city: 'Pune' },
-  { id: '#WAR-10479', customer: 'Karthik M', email: 'karthik@example.com', product: 'Graphic City Tee × 3', amount: 2997, items: 3, status: 'Pending', payment: 'COD', date: '2026-06-08', city: 'Chennai' },
-  { id: '#WAR-10478', customer: 'Suresh Babu', email: 'suresh@example.com', product: 'Premium Pima Cotton', amount: 2199, items: 1, status: 'Delivered', payment: 'UPI', date: '2026-06-07', city: 'Hyderabad' },
-  { id: '#WAR-10477', customer: 'Amit Singh', email: 'amit@example.com', product: 'Urban Minimalist', amount: 1099, items: 1, status: 'Cancelled', payment: 'Card', date: '2026-06-07', city: 'Delhi' },
-  { id: '#WAR-10476', customer: 'Pradeep R', email: 'pradeep@example.com', product: 'Thermal Base Layer', amount: 1799, items: 1, status: 'Shipped', payment: 'UPI', date: '2026-06-06', city: 'Kolkata' },
-  { id: '#WAR-10475', customer: 'Vijay Kumar', email: 'vijay@example.com', product: 'Summer Stripes × 2', amount: 1798, items: 2, status: 'Returned', payment: 'Card', date: '2026-06-05', city: 'Ahmedabad' },
-];
-
-const STATUS_CONFIG: Record<OrderStatus, { bg: string; color: string; icon: React.ReactNode }> = {
-  Delivered: { bg: 'rgba(34,197,94,0.12)', color: '#22c55e', icon: <CheckCircle2 size={12} /> },
-  Shipped: { bg: 'rgba(59,130,246,0.12)', color: '#3b82f6', icon: <Truck size={12} /> },
-  Processing: { bg: 'rgba(234,179,8,0.12)', color: '#eab308', icon: <Clock size={12} /> },
-  Pending: { bg: 'rgba(156,163,175,0.12)', color: '#9ca3af', icon: <AlertCircle size={12} /> },
-  Cancelled: { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', icon: <XCircle size={12} /> },
-  Returned: { bg: 'rgba(168,85,247,0.12)', color: '#a855f7', icon: <XCircle size={12} /> },
-};
-
-const ALL_STATUSES: OrderStatus[] = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Returned'];
-
 export default function AdminOrdersPage() {
-  const supabase = useMemo(() => createClient(), []);
-  const [orders, setOrders] = useState<Order[]>(MOCK_ORDERS);
-  const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('All');
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [orders, setOrders] = useState<AdminOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tracking, setTracking] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    const fetchSupabaseOrders = async () => {
-      try {
-        const { data, error } = await (supabase as any)
-          .from('orders')
-          .select('*, order_items(*, product:products(name))')
-          .order('created_at', { ascending: false });
-
-        if (data && data.length > 0) {
-          const mapped: Order[] = data.map((o: any) => {
-            const addr = o.delivery_address || {};
-            const custName = addr.full_name || 'Customer';
-            const custCity = addr.city || 'Bengaluru';
-            const itemCount = o.order_items?.reduce((sum: number, it: any) => sum + (it.quantity || 1), 0) ?? 1;
-            const firstProdName = o.order_items?.[0]?.product?.name || 'WAR Essential Item';
-            const prodText = o.order_items?.length > 1 ? `${firstProdName} + ${o.order_items.length - 1} more` : firstProdName;
-
-            const st = (o.status || 'processing').toLowerCase();
-            let finalStatus: OrderStatus = 'Processing';
-            if (st === 'confirmed' || st === 'processing') finalStatus = 'Processing';
-            else if (st === 'shipped') finalStatus = 'Shipped';
-            else if (st === 'delivered') finalStatus = 'Delivered';
-            else if (st === 'cancelled') finalStatus = 'Cancelled';
-            else if (st === 'pending') finalStatus = 'Pending';
-
-            return {
-              id: `#${o.order_number || o.order_id.slice(0, 8)}`,
-              customer: custName,
-              email: addr.email || 'customer@war.in',
-              product: prodText,
-              amount: Number(o.total || 0),
-              items: itemCount,
-              status: finalStatus,
-              payment: (o.payment_method || 'UPI').toUpperCase(),
-              date: new Date(o.created_at || Date.now()).toISOString().split('T')[0],
-              city: custCity,
-              raw_id: o.order_id,
-            };
-          });
-          setOrders(mapped);
-        }
-      } catch (err) {
-        console.error('Failed to fetch orders from Supabase', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchSupabaseOrders();
-  }, [supabase]);
-
-  const updateStatus = async (id: string, status: OrderStatus) => {
-    setUpdatingId(id);
-    const target = orders.find((o) => o.id === id);
+  const load = useCallback(async () => {
     try {
-      if (target?.raw_id) {
-        const dbStatus = status.toLowerCase();
-        await (supabase as any)
-          .from('orders')
-          .update({ status: dbStatus })
-          .eq('order_id', target.raw_id);
-      }
-      setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status } : o));
-      if (selectedOrder?.id === id) setSelectedOrder((prev) => prev ? { ...prev, status } : null);
-    } catch (err) {
-      console.error('Failed to update status in Supabase', err);
+      const res = await fetch('/api/admin/orders');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not load orders.');
+      setOrders(data.orders);
+    } catch (err: any) {
+      setError(err.message);
     } finally {
-      setUpdatingId(null);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const selected = orders.find((o) => o.id === selectedId) ?? null;
+  useEffect(() => { setTracking(selected?.tracking ?? ''); }, [selected?.id, selected?.tracking]);
+
+  const act = async (url: string, method: string, body?: unknown) => {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not update the order.');
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const filtered = orders.filter((o) => {
-    const matchSearch =
-      o.id.toLowerCase().includes(search.toLowerCase()) ||
-      o.customer.toLowerCase().includes(search.toLowerCase()) ||
-      o.email.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'All' || o.status === filterStatus;
-    return matchSearch && matchStatus;
-  });
+  const exportCsv = () => {
+    const blob = new Blob([ordersToCsv(filtered)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `war-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-  const totalRevenue = orders
-    .filter((o) => o.status !== 'Cancelled' && o.status !== 'Returned')
-    .reduce((sum, o) => sum + o.amount, 0);
+  const q = search.toLowerCase();
+  // Abandoned online payments live in their own tab so they never mix with real orders.
+  const realOrders = orders.filter((o) => !o.abandoned);
+  const abandoned = orders.filter((o) => o.abandoned);
+  const filtered = (filterStatus === 'abandoned' ? abandoned : realOrders).filter((o) =>
+    (filterStatus === 'all' || filterStatus === 'abandoned' || o.status === filterStatus) &&
+    [o.reference, o.customer, o.email, o.phone].some((v) => v.toLowerCase().includes(q)),
+  );
+  const revenue = orders
+    .filter((o) => isCountedSale({ total: o.total, status: o.status, payment_status: o.paymentStatus, created_at: o.date }))
+    .reduce((s, o) => s + o.total, 0);
+  const stats = [
+    { label: 'Total Orders', value: realOrders.length, color: 'var(--fg)' },
+    { label: 'To Ship', value: orders.filter((o) => o.status === 'confirmed' || o.status === 'processing').length, color: '#eab308' },
+    { label: 'In Transit', value: orders.filter((o) => o.status === 'shipped').length, color: '#3b82f6' },
+    { label: 'Revenue', value: `₹${revenue.toLocaleString('en-IN')}`, color: '#22c55e' },
+  ];
+  const cancellable = selected && ['pending', 'confirmed', 'processing'].includes(selected.status);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Orders</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-            Manage and track all customer orders
-          </p>
+          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Manage and track all customer orders</p>
         </div>
-        <button
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold"
-          style={{ background: 'var(--bg-subtle)', color: 'var(--fg)', border: '1px solid var(--border)' }}
-        >
-          <Download size={16} />
-          Export CSV
+        <button onClick={exportCsv} disabled={filtered.length === 0}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50" style={subtle}>
+          <Download size={16} /> Export CSV
         </button>
       </div>
 
-      {/* Stats */}
+      {error && <div role="alert" className="px-4 py-3 rounded-xl text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>{error}</div>}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {(
-          [
-            { label: 'Total Orders', value: orders.length, color: 'var(--fg)' },
-            { label: 'Processing', value: orders.filter((o) => o.status === 'Processing' || o.status === 'Pending').length, color: '#eab308' },
-            { label: 'In Transit', value: orders.filter((o) => o.status === 'Shipped').length, color: '#3b82f6' },
-            { label: 'Revenue', value: `₹${(totalRevenue / 1000).toFixed(1)}K`, color: '#22c55e' },
-          ] as const
-        ).map((s) => (
-          <div key={s.label} className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-            <div className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</div>
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-xl p-4" style={card}>
+            <div className="text-2xl font-bold" style={{ color: s.color }}>{loading ? '—' : s.value}</div>
             <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>{s.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div
-        className="rounded-2xl p-4 flex flex-wrap items-center gap-3"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
-      >
+      <div className="rounded-2xl p-4 flex flex-wrap items-center gap-3" style={card}>
         <div className="relative flex-1 min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--fg-muted)' }} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by order ID, customer…"
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm outline-none"
-            style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
-          />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by reference, customer, email, phone…"
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm outline-none" style={subtle} />
         </div>
         <div className="flex flex-wrap items-center gap-1">
-          {['All', ...ALL_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
-              className="px-3 py-2 rounded-lg text-xs font-medium transition-all"
-              style={{
-                background: filterStatus === s ? 'var(--primary)' : 'var(--bg-subtle)',
-                color: filterStatus === s ? 'var(--primary-fg)' : 'var(--fg-muted)',
-              }}
-            >
-              {s}
+          {['all', ...Object.keys(STATUS_CONFIG).filter((s) => s !== 'pending'), 'abandoned'].map((s) => (
+            <button key={s} onClick={() => setFilterStatus(s)} className="px-3 py-2 rounded-lg text-xs font-medium"
+              style={{ background: filterStatus === s ? 'var(--primary)' : 'var(--bg-subtle)', color: filterStatus === s ? 'var(--primary-fg)' : 'var(--fg-muted)' }}>
+              {s === 'all' ? 'All' : s === 'abandoned' ? `Abandoned payments (${abandoned.length})` : STATUS_CONFIG[s].label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Table */}
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
-      >
+      {filterStatus === 'abandoned' && (
+        <p className="text-xs px-1" style={{ color: 'var(--fg-muted)' }}>
+          The customer opened online payment but closed the payment window without paying. No money was taken and no stock was used — these are not real orders. Useful if you want to follow up with the customer.
+        </p>
+      )}
+
+      <div className="rounded-2xl overflow-x-auto" style={card}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-subtle)' }}>
-              <th className="text-left px-5 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Order</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Customer</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden md:table-cell" style={{ color: 'var(--fg-muted)' }}>Product</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Amount</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Payment</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Status</th>
-              <th className="px-4 py-3" />
+              {['Order', 'Customer', 'Items', 'Amount', 'Payment', 'Status', ''].map((h) => (
+                <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((order, idx) => {
-              const sc = STATUS_CONFIG[order.status] || STATUS_CONFIG.Processing;
-              return (
-                <tr
-                  key={order.id ? `${order.id}-${idx}` : `order-${idx}`}
-                  style={{ borderBottom: '1px solid var(--border)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'var(--bg-subtle)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
-                >
-                  <td className="px-5 py-3.5">
-                    <div className="font-semibold text-sm">{order.id}</div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>{order.date}</div>
-                  </td>
-                  <td className="px-4 py-3.5 hidden sm:table-cell">
-                    <div className="text-sm font-medium">{order.customer}</div>
-                    <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{order.city}</div>
-                  </td>
-                  <td className="px-4 py-3.5 hidden md:table-cell">
-                    <div className="text-xs truncate max-w-[160px]" style={{ color: 'var(--fg-muted)' }}>{order.product}</div>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <div className="font-semibold">₹{order.amount.toLocaleString()}</div>
-                    <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{order.items} item{order.items > 1 ? 's' : ''}</div>
-                  </td>
-                  <td className="px-4 py-3.5 hidden sm:table-cell">
-                    <span
-                      className="text-xs px-2 py-1 rounded-lg font-medium"
-                      style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)' }}
-                    >
-                      {order.payment}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <span
-                      className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
-                      style={{ background: sc.bg, color: sc.color }}
-                    >
-                      {sc.icon}
-                      {order.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <button
-                      onClick={() => setSelectedOrder(order)}
-                      className="p-1.5 rounded-lg transition-all"
-                      style={{ color: 'var(--fg-muted)' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-subtle)'; e.currentTarget.style.color = 'var(--fg)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-muted)'; }}
-                    >
-                      <Eye size={15} />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+            {loading ? (
+              <tr><td colSpan={7} className="px-5 py-12 text-center" style={{ color: 'var(--fg-muted)' }}>Loading…</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={7} className="px-5 py-12 text-center" style={{ color: 'var(--fg-muted)' }}><Package size={28} className="mx-auto mb-2 opacity-50" />No orders found</td></tr>
+            ) : filtered.map((o) => (
+              <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td className="px-4 py-3.5"><div className="font-semibold font-mono">{o.reference}</div><div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{o.date}</div></td>
+                <td className="px-4 py-3.5"><div className="font-medium">{o.customer || '—'}</div><div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{o.email}</div></td>
+                <td className="px-4 py-3.5 text-xs" style={{ color: 'var(--fg-muted)' }}>{o.units} unit{o.units === 1 ? '' : 's'}</td>
+                <td className="px-4 py-3.5 font-semibold">₹{o.total.toLocaleString('en-IN')}</td>
+                <td className="px-4 py-3.5 text-xs">{o.payment}</td>
+                <td className="px-4 py-3.5"><StatusBadge status={o.status} /></td>
+                <td className="px-4 py-3.5"><button onClick={() => setSelectedId(o.id)} className="p-1.5 rounded-lg" style={{ color: 'var(--fg-muted)' }} aria-label={`View ${o.reference}`}><Eye size={15} /></button></td>
+              </tr>
+            ))}
           </tbody>
         </table>
-        <div
-          className="flex items-center justify-between px-5 py-3 text-xs"
-          style={{ borderTop: '1px solid var(--border)', color: 'var(--fg-muted)' }}
-        >
-          <span>Showing {filtered.length} of {orders.length} orders</span>
-        </div>
+        <div className="px-5 py-3 text-xs" style={{ borderTop: '1px solid var(--border)', color: 'var(--fg-muted)' }}>Showing {filtered.length} of {filterStatus === 'abandoned' ? abandoned.length : realOrders.length} {filterStatus === 'abandoned' ? 'abandoned payments' : 'orders'}</div>
       </div>
 
-      {/* Order detail modal */}
-      {selectedOrder && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0,0,0,0.6)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) setSelectedOrder(null); }}
-        >
-          <div
-            className="w-full max-w-lg rounded-2xl p-6 space-y-5"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
-          >
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-6 space-y-5" style={card}>
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold">{selectedOrder.id}</h2>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>{selectedOrder.date}</p>
+                <h2 className="text-lg font-bold font-mono">{selected.reference}</h2>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--fg-muted)' }}>{selected.date} · <StatusBadge status={selected.status} /></p>
               </div>
-              <button onClick={() => setSelectedOrder(null)} style={{ color: 'var(--fg-muted)' }}>
-                <XCircle size={20} />
-              </button>
+              <button onClick={() => setSelectedId(null)} style={{ color: 'var(--fg-muted)' }} aria-label="Close"><XCircle size={20} /></button>
             </div>
 
-            {/* Customer info */}
-            <div className="rounded-xl p-4 space-y-2" style={{ background: 'var(--bg-subtle)' }}>
-              <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--fg-muted)' }}>Customer</div>
-              <div className="text-sm font-semibold">{selectedOrder.customer}</div>
-              <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{selectedOrder.email}</div>
-              <div className="text-xs" style={{ color: 'var(--fg-muted)' }}>{selectedOrder.city}</div>
+            <div className="rounded-xl p-4 space-y-1 text-sm" style={{ background: 'var(--bg-subtle)' }}>
+              <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--fg-muted)' }}>Ship to</div>
+              <div className="font-semibold">{selected.customer}</div>
+              <div style={{ color: 'var(--fg-muted)' }}>{selected.address}</div>
+              <div style={{ color: 'var(--fg-muted)' }}>{selected.phone} · {selected.email}</div>
             </div>
 
-            {/* Order items */}
-            <div className="rounded-xl p-4" style={{ background: 'var(--bg-subtle)' }}>
+            <div className="rounded-xl p-4 text-sm" style={{ background: 'var(--bg-subtle)' }}>
               <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--fg-muted)' }}>Items</div>
-              <div className="text-sm">{selectedOrder.product}</div>
-              <div className="flex justify-between mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-                <span className="text-sm font-semibold">Total</span>
-                <span className="text-sm font-bold">₹{selectedOrder.amount.toLocaleString()}</span>
+              {selected.items.map((it) => (
+                <div key={it.id} className="flex justify-between py-1" style={{ opacity: it.cancelled ? 0.5 : 1 }}>
+                  <span>{it.name}{it.variant && ` (${it.variant})`} × {it.quantity}{it.cancelled && ' — cancelled'}</span>
+                  <span>₹{it.total.toLocaleString('en-IN')}</span>
+                </div>
+              ))}
+              <div className="flex justify-between mt-3 pt-3 font-bold" style={{ borderTop: '1px solid var(--border)' }}>
+                <span>Total</span><span>₹{selected.total.toLocaleString('en-IN')}</span>
               </div>
+              <div className="mt-2 text-xs" style={{ color: 'var(--fg-muted)' }}>Payment: {selected.payment}</div>
             </div>
 
-            {/* Payment */}
-            <div className="flex items-center justify-between text-sm">
-              <span style={{ color: 'var(--fg-muted)' }}>Payment Method</span>
-              <span className="font-medium">{selectedOrder.payment}</span>
-            </div>
-
-            {/* Update status */}
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--fg-muted)' }}>Update Status</div>
-              <div className="flex flex-wrap gap-2">
-                {ALL_STATUSES.map((s) => {
-                  const sc = STATUS_CONFIG[s];
-                  const isCurrent = selectedOrder.status === s;
-                  return (
-                    <button
-                      key={s}
-                      onClick={() => updateStatus(selectedOrder.id, s)}
-                      disabled={isCurrent || updatingId === selectedOrder.id}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
-                      style={{
-                        background: isCurrent ? sc.bg : 'var(--bg-subtle)',
-                        color: isCurrent ? sc.color : 'var(--fg-muted)',
-                        border: `1px solid ${isCurrent ? sc.color + '40' : 'var(--border)'}`,
-                        opacity: updatingId === selectedOrder.id && !isCurrent ? 0.5 : 1,
-                      }}
-                    >
-                      {sc.icon}
-                      {s}
-                      {isCurrent && ' ✓'}
+            {!['cancelled', 'refunded'].includes(selected.status) && !selected.abandoned && (
+              <div className="rounded-xl p-4 text-sm space-y-2" style={{ background: 'var(--bg-subtle)' }}>
+                <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fg-muted)' }}>Shiprocket</div>
+                {selected.courier || selected.tracking ? (
+                  <p>{selected.courier || 'Courier assigned'}{selected.tracking && <> · AWB <span className="font-mono">{selected.tracking}</span></>}</p>
+                ) : (
+                  <p style={{ color: 'var(--fg-muted)' }}>{selected.inShiprocket ? 'In Shiprocket — courier not assigned yet.' : 'Not sent to Shiprocket yet.'}</p>
+                )}
+                {selected.shippingError && <p role="alert" className="text-xs" style={{ color: '#ef4444' }}>{selected.shippingError}</p>}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {selected.labelUrl && (
+                    <a href={selected.labelUrl} target="_blank" rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+                      Print label
+                    </a>
+                  )}
+                  {!selected.tracking && (
+                    <button disabled={busy} onClick={() => act('/api/shipping/create-order', 'POST', { order_id: selected.id })}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+                      {selected.inShiprocket ? 'Retry courier assignment' : 'Send to Shiprocket'}
                     </button>
-                  );
-                })}
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--fg-muted)' }}>Courier tracking number</label>
+              <div className="flex gap-2 mt-2">
+                <input value={tracking} onChange={(e) => setTracking(e.target.value)} className="flex-1 px-3 py-2 rounded-lg text-sm" style={subtle} />
+                <button disabled={busy} onClick={() => act(`/api/admin/orders/${selected.id}`, 'PATCH', { tracking_number: tracking })}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50" style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>Save</button>
               </div>
             </div>
+
+            {!['cancelled', 'refunded', 'pending'].includes(selected.status) && (
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--fg-muted)' }}>Update status</div>
+                <div className="flex flex-wrap gap-2">
+                  {FULFILMENT_STEPS.map((s) => (
+                    <button key={s} disabled={busy || selected.status === s} onClick={() => act(`/api/admin/orders/${selected.id}`, 'PATCH', { status: s })}
+                      className="px-3 py-1.5 rounded-xl text-xs font-medium disabled:opacity-60"
+                      style={{ background: selected.status === s ? `${STATUS_CONFIG[s].color}1f` : 'var(--bg-subtle)', color: selected.status === s ? STATUS_CONFIG[s].color : 'var(--fg-muted)', border: '1px solid var(--border)' }}>
+                      {STATUS_CONFIG[s].label}{selected.status === s && ' ✓'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {cancellable && (
+              <button disabled={busy}
+                onClick={() => confirm('Cancel this order? Online payments are refunded automatically and stock is put back.') && act(`/api/admin/orders/${selected.id}/cancel`, 'POST')}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+                Cancel order & refund
+              </button>
+            )}
           </div>
         </div>
       )}

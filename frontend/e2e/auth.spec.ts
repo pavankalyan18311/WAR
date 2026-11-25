@@ -30,7 +30,8 @@ test.describe('Authentication Pages', () => {
     const registerLink = page.locator('a[href="/auth/register"]').first()
     await expect(registerLink).toBeVisible()
     await registerLink.click()
-    await expect(page).toHaveURL(/register/)
+    // The dev server compiles /auth/register on first visit, which can take >5 s.
+    await expect(page).toHaveURL(/register/, { timeout: 15_000 })
   })
 
   test('register page has link back to login', async ({ page }) => {

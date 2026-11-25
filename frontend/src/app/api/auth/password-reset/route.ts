@@ -124,8 +124,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Update password for verified user
-    const { error: updateError } = await supabase.auth.updateUser({ password });
+    // 2. Update password via admin API using the user ID from the verified OTP
+    const userId = verifyData?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: 'Could not identify user from OTP. Please request a new code.' }, { status: 400 });
+    }
+
+    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, { password });
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });

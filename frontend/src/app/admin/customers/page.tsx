@@ -10,6 +10,8 @@ interface Customer {
   phone: string;
   orders_count: number;
   total_spent: number;
+  /** Spendable reward points (1 point = ₹1) */
+  reward_points: number;
   created_at: string;
   role: string;
 }
@@ -110,6 +112,7 @@ export default function AdminCustomersPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold hidden md:table-cell" style={{ color: 'var(--fg-muted)' }}>Contact</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Orders</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Total Spent</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Points</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold hidden sm:table-cell" style={{ color: 'var(--fg-muted)' }}>Role</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold hidden lg:table-cell" style={{ color: 'var(--fg-muted)' }}>Joined</th>
               </tr>
@@ -117,7 +120,7 @@ export default function AdminCustomersPage() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
+                  <td colSpan={7} className="text-center py-12" style={{ color: 'var(--fg-muted)' }}>
                     <Users size={32} className="mx-auto mb-3 opacity-30" />
                     <p className="text-sm">{search ? 'No customers match your search' : 'No customers yet'}</p>
                   </td>
@@ -150,6 +153,9 @@ export default function AdminCustomersPage() {
                     </td>
                     <td className="px-4 py-3.5 font-bold" style={{ color: '#22c55e' }}>
                       ₹{c.total_spent.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3.5 font-semibold" title={`Worth ₹${c.reward_points ?? 0}`}>
+                      {c.reward_points ?? 0}
                     </td>
                     <td className="px-4 py-3.5 hidden sm:table-cell">
                       <span className="inline-flex text-xs px-2.5 py-1 rounded-full font-medium"

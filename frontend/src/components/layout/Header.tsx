@@ -1,44 +1,33 @@
 'use client';
 
+import WarLogo from '@/components/brand/WarLogo';
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { Search, User, ShoppingBag, Menu, X, ChevronDown, LogOut, Gift, Heart, Moon, Sun, Monitor, ShieldCheck } from 'lucide-react';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { useTheme } from '@/components/providers/ThemeProvider';
-import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { getCategories } from '@/lib/supabase/queries';
+import AnnouncementBar from '@/components/layout/AnnouncementBar';
+import SearchOverlay from '@/components/layout/SearchOverlay';
 
 const NAV_LINKS = [
-  { label: 'NEW DROPS', href: '/products' },
-  { label: 'OVERSIZED COLLECTION', href: '/products?category=oversized' },
+  { label: 'NEW DROPS', href: '/products?sort=newest' },
+  { label: 'COLLECTIONS', href: '/collections' },
   { label: 'BEST SELLERS', href: '/products?sort=popular' },
-  { label: 'ABOUT US', href: '/about' },
-];
-
-const MEN_DROPDOWN = [
-  { label: 'Oversized T-Shirts', href: '/products?category=oversized' },
-  { label: 'Graphic T-Shirts', href: '/products?category=graphic' },
-  { label: 'Plain T-Shirts', href: '/products?category=plain' },
-  { label: 'Polo T-Shirts', href: '/products?category=polo' },
-  { label: 'Premium Collection', href: '/products?category=premium' },
 ];
 
 export default function Header() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Hide storefront Header completely when inside Admin Dashboard
-  if (pathname.startsWith('/admin')) {
-    return null;
-  }
+  // All hooks MUST be called before any conditional return (Rules of Hooks)
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
@@ -47,41 +36,38 @@ export default function Header() {
   const profileRef = useRef<HTMLDivElement>(null);
   const themeRef = useRef<HTMLDivElement>(null);
   const dropdownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    getCategories().then((c) => setCategories(c as { id: string; name: string }[])).catch(() => {});
+  }, []);
 
   const totalItems = useCartStore((s) => s.getTotalItems());
   const openCart = useCartStore((s) => s.openCart);
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, role } = useAuthStore();
 
   useEffect(() => {
     setMounted(true);
     const onScroll = () => setIsScrolled(window.scrollY > 12);
     window.addEventListener('scroll', onScroll, { passive: true });
 
-    // Sync session safely once
-    const supabase = createClient();
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
-        const currentUser = useAuthStore.getState().user;
-        if ((session?.user?.id || null) !== (currentUser?.id || null)) {
-          useAuthStore.setState({
-            session,
-            user: session?.user ?? null,
-            isAuthenticated: !!session,
-          });
-        }
-      }
-    });
-
     return () => {
       window.removeEventListener('scroll', onScroll);
-      authListener.subscription.unsubscribe();
     };
   }, []);
 
+  // Keyboard shortcut: '/' (or Ctrl/⌘+K) opens search, like most modern stores.
   useEffect(() => {
-    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
-  }, [searchOpen]);
+    const onKey = (e: KeyboardEvent) => {
+      const typing = e.target instanceof HTMLElement && (e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName));
+      if ((e.key === '/' && !typing) || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -99,14 +85,8 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/products?search=${encodeURIComponent(searchQuery.trim())}`);
-      setSearchOpen(false);
-      setSearchQuery('');
-    }
-  };
+  // Early return AFTER all hooks — admin layout has its own chrome
+  if (pathname.startsWith('/admin')) return null;
 
   const iconBtn = 'p-2 rounded-lg transition-all duration-150 relative cursor-pointer';
   const meta = user?.user_metadata || {};
@@ -123,7 +103,7 @@ export default function Header() {
   return (
     <>
       {/* Top Admin Banner when an Admin is viewing storefront */}
-      {mounted && (['admin', 'super_admin', 'manager'].includes(useAuthStore.getState().role) || (user?.email || '').toLowerCase().trim() === 'maladoddipavankalyan@gmail.com') && (
+      {mounted && isAuthenticated && ['admin', 'super_admin', 'manager'].includes(role) && (
         <div className="w-full py-2 px-4 flex items-center justify-between text-xs font-bold z-[100] shadow-md transition-all"
           style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
           <div className="flex items-center gap-2">
@@ -136,32 +116,37 @@ export default function Header() {
         </div>
       )}
 
+      <AnnouncementBar />
+
       {/* Main Header */}
       <header
         className={cn('sticky top-0 z-50 transition-all duration-300')}
         style={{
-          background: isScrolled ? 'var(--bg-card)' : 'color-mix(in srgb, var(--bg) 88%, transparent)',
-          borderBottom: '1px solid var(--border)',
-          backdropFilter: 'blur(12px)',
+          // Settles into a frosted paper bar with a soft shadow once the page scrolls.
+          background: isScrolled ? 'color-mix(in srgb, var(--bg) 82%, transparent)' : 'var(--bg)',
+          borderBottom: `1px solid ${isScrolled ? 'var(--border-strong)' : 'var(--border)'}`,
+          backdropFilter: isScrolled ? 'blur(14px) saturate(140%)' : undefined,
+          WebkitBackdropFilter: isScrolled ? 'blur(14px) saturate(140%)' : undefined,
+          boxShadow: isScrolled ? 'var(--shadow-sm)' : 'none',
         }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <div className="flex-shrink-0 flex items-center gap-2.5">
-              <Link href="/" className="flex items-center gap-2.5">
-                <Image src="/images/War_Logo.png" alt="WAR logo" width={36} height={36} className="rounded-lg object-cover" />
+              <Link href="/" className="flex items-center gap-3" aria-label="WAR — Without Any Regrets, home">
+                <span className="flex flex-col leading-none" style={{ color: 'var(--fg)' }}>
+                  <WarLogo decorative className="h-[22px] sm:h-[26px] w-auto" />
+                  <span className="hidden sm:block text-[8.5px] tracking-[0.3em] uppercase mt-1.5" style={{ color: 'var(--fg-subtle)' }}>Without Any Regrets</span>
+                </span>
               </Link>
             </div>
 
             {/* Desktop Nav (centered) */}
-            <nav className="hidden md:flex items-center gap-0.5 absolute left-1/2 transform -translate-x-1/2">
+            <nav className="hidden md:flex items-center gap-8 absolute left-1/2 transform -translate-x-1/2">
               {NAV_LINKS.map((link) => (
                 <Link key={link.label} href={link.href}
-                  className="px-3 py-2 rounded-lg text-xs font-bold transition-colors"
-                  style={{ color: 'var(--fg-muted)', letterSpacing: '0.04em' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--fg)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-muted)'; e.currentTarget.style.background = ''; }}
+                  className="nav-link py-2 text-[11px] font-semibold uppercase tracking-[0.2em]"
                 >
                   {link.label}
                 </Link>
@@ -265,8 +250,8 @@ export default function Header() {
                     <div className="absolute right-0 mt-2 w-56 rounded-xl overflow-hidden z-[70] animate-fade-in"
                       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
                       
-                      {/* Show Admin Suite Link if Logged User is Admin */}
-                      {(['admin', 'super_admin', 'manager'].includes(useAuthStore.getState().role) || (user?.email || '').toLowerCase().trim() === 'maladoddipavankalyan@gmail.com') && (
+                      {/* Show Admin Suite Link only for admin roles */}
+                      {['admin', 'super_admin', 'manager'].includes(role) && (
                         <Link href="/admin/dashboard"
                           onClick={() => setProfileOpen(false)}
                           className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-bold"
@@ -393,41 +378,7 @@ export default function Header() {
         )}
       </header>
 
-      {/* Search Overlay */}
-      {searchOpen && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center pt-20 px-4"
-          style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)' }}
-          onClick={(e) => e.target === e.currentTarget && setSearchOpen(false)}>
-          <div className="w-full max-w-2xl rounded-2xl overflow-hidden animate-fade-up"
-            style={{ background: 'var(--bg-card)', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--border)' }}>
-            <form onSubmit={handleSearch} className="flex items-center gap-3 px-5 py-4">
-              <Search size={20} style={{ color: 'var(--fg-subtle)', flexShrink: 0 }} />
-              <input data-testid="header-search-input" ref={searchInputRef} type="text" value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search t-shirts, styles, colours..."
-                className="flex-1 text-base outline-none bg-transparent"
-                style={{ color: 'var(--fg)' }} />
-              <button type="button" onClick={() => setSearchOpen(false)} className="p-1 rounded"
-                style={{ color: 'var(--fg-subtle)' }}>
-                <X size={18} />
-              </button>
-            </form>
-            <div className="px-5 pb-4 pt-1 flex gap-2 flex-wrap" style={{ borderTop: '1px solid var(--border)' }}>
-              <p className="w-full text-xs mb-2" style={{ color: 'var(--fg-subtle)' }}>Popular searches:</p>
-              {['Oversized', 'Graphic Tees', 'Premium', 'New Arrivals', 'Sale'].map((tag) => (
-                <button key={tag}
-                  onClick={() => { router.push(`/products?search=${encodeURIComponent(tag)}`); setSearchOpen(false); }}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium"
-                  style={{ background: 'var(--bg-elevated)', color: 'var(--fg-muted)', border: '1px solid var(--border)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = 'var(--primary-fg)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-elevated)'; e.currentTarget.style.color = 'var(--fg-muted)'; }}>
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} categories={categories} />
     </>
   );
 }

@@ -1,107 +1,91 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { getCollections, getProducts } from '@/lib/supabase/queries';
-import ScrollReveal from '@/components/ui/ScrollReveal';
+import { getCollections } from '@/lib/supabase/queries';
+
+const num = (i: number) => String(i + 1).padStart(2, '0');
+
+function Cover({ src, alt, index, sizes, priority }: { src?: string | null; alt: string; index: number; sizes: string; priority?: boolean }) {
+  return src ? (
+    <Image src={src} alt={alt} fill priority={priority} sizes={sizes}
+      className="object-cover transition-transform duration-700 group-hover:scale-[1.04]" />
+  ) : (
+    <div className="absolute inset-0 flex items-center justify-center ui-heading text-7xl" style={{ color: 'var(--brand)', background: 'var(--brand-soft)' }}>
+      {num(index)}
+    </div>
+  );
+}
 
 export default async function CollectionsPage() {
   const collections = await getCollections();
 
   if (!collections || collections.length === 0) {
     return (
-      <main className="min-h-screen py-24 text-center" style={{ background: 'var(--bg)' }}>
-        <div className="max-w-md mx-auto px-5">
-          <h1 className="text-3xl font-black mb-3" style={{ color: 'var(--fg)' }}>Collections</h1>
-          <p className="text-sm mb-6" style={{ color: 'var(--fg-muted)' }}>No collections found at the moment.</p>
-          <Link href="/products" className="px-6 py-3 rounded-full text-xs font-extrabold uppercase" style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-            Shop All Products
-          </Link>
+      <main className="ui-page w-full">
+        <div className="max-w-3xl mx-auto px-4 sm:px-8 py-16 sm:py-24">
+          <div className="ui-card px-6 py-14 text-center">
+            <span className="ui-chip ui-chip-brand mb-4">Curated edits</span>
+            <h1 className="ui-heading mb-3" style={{ fontSize: 'clamp(2.2rem, 5vw, 3.2rem)', lineHeight: 1.05 }}>Collections</h1>
+            <p className="text-[15px] mb-8" style={{ color: 'var(--fg-muted)' }}>No collections found at the moment.</p>
+            <Link href="/products" className="ui-btn">Shop All Products</Link>
+          </div>
         </div>
       </main>
     );
   }
 
-  const featured = collections[0];
-  const rest = collections.slice(1);
+  const [featured, ...rest] = collections;
 
   return (
-    <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 py-12">
-          <ScrollReveal animation="fade-up">
-            <p className="text-xs font-bold tracking-[0.3em] uppercase mb-2" style={{ color: 'var(--accent)' }}>
-              Curated For You
-            </p>
-            <h1 className="text-3xl sm:text-5xl font-black" style={{ color: 'var(--fg)' }}>Collections</h1>
-            <p className="mt-3 text-sm max-w-md" style={{ color: 'var(--fg-muted)' }}>
-              Thoughtfully curated groups of styles — each collection tells a story. Find yours.
-            </p>
-          </ScrollReveal>
-        </div>
-      </div>
+    <main className="ui-page w-full">
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-8 pt-8 pb-20">
+        <header className="ui-card px-5 sm:px-8 py-7 mb-6 flex flex-col md:flex-row md:items-end justify-between gap-5">
+          <div>
+            <span className="ui-chip ui-chip-brand mb-3">Curated edits</span>
+            <h1 className="ui-heading" style={{ fontSize: 'clamp(2.2rem, 5vw, 3.4rem)', lineHeight: 1.02 }}>Collections</h1>
+          </div>
+          <p className="text-[15px] max-w-sm" style={{ color: 'var(--fg-muted)' }}>
+            Thoughtfully curated groups of styles — each collection tells a story. Find yours.
+          </p>
+        </header>
 
-      <div className="max-w-7xl mx-auto px-5 sm:px-8 py-12">
-        {/* Featured — first collection large */}
-        {featured && (
-          <ScrollReveal animation="fade-up">
-            <Link
-              href={`/collections/${featured.slug}`}
-              className="block group relative rounded-3xl overflow-hidden mb-6"
-              style={{ height: '480px', background: 'var(--bg-elevated)' }}
-            >
-              <Image
-                src={featured.banner_url || featured.image_url || 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=1200'}
-                alt={featured.name}
-                fill className="object-cover transition-transform duration-700 group-hover:scale-105"
-                sizes="100vw" priority
-              />
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.2) 60%)' }} />
-              <div className="absolute inset-0 flex items-end p-10">
-                <div>
-                  <h2 className="text-4xl font-black text-white mb-2">{featured.name}</h2>
-                  {featured.description && (
-                    <p className="text-sm mb-5 max-w-md" style={{ color: 'rgba(255,255,255,0.75)' }}>{featured.description}</p>
-                  )}
-                  <span className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-bold text-sm uppercase tracking-wider transition-all group-hover:shadow-[0_8px_30px_rgba(255,255,255,0.2)]"
-                    style={{ background: '#fff', color: '#0a0a0a' }}>
-                    Shop Collection <ArrowRight size={14} />
-                  </span>
-                </div>
-              </div>
-            </Link>
-          </ScrollReveal>
-        )}
+        {/* Featured */}
+        <Link href={`/collections/${featured.slug}`} className="group ui-card overflow-hidden grid md:grid-cols-12">
+          <div className="md:col-span-7 relative aspect-[4/3] md:aspect-auto md:min-h-[440px] overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+            <Cover src={featured.image_url} alt={featured.name} index={0} sizes="(max-width: 768px) 100vw, 58vw" priority />
+          </div>
+          <div className="md:col-span-5 p-6 sm:p-10 flex flex-col justify-between gap-8">
+            <span className="ui-chip ui-chip-brand self-start">01 — Featured edit</span>
+            <div>
+              <h2 className="ui-heading leading-[1.02] mb-3" style={{ fontSize: 'clamp(1.9rem, 3.4vw, 3rem)' }}>{featured.name}</h2>
+              {featured.description && <p className="text-[15px] leading-relaxed" style={{ color: 'var(--fg-muted)' }}>{featured.description}</p>}
+            </div>
+            <span className="ui-btn self-start">
+              Shop Collection <ArrowRight size={15} />
+            </span>
+          </div>
+        </Link>
 
-        {/* Rest — 2 columns */}
+        {/* The rest */}
         {rest.length > 0 && (
-          <div className="grid sm:grid-cols-2 gap-5">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-6">
             {rest.map((col: any, i: number) => (
-              <ScrollReveal key={col.id} animation="fade-up" delay={i * 100}>
-                <Link
-                  href={`/collections/${col.slug}`}
-                  className="block group relative rounded-2xl overflow-hidden"
-                  style={{ height: '320px', background: 'var(--bg-elevated)' }}
-                >
-                  <Image
-                    src={col.image_url || col.banner_url || 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800'}
-                    alt={col.name}
-                    fill className="object-cover transition-transform duration-700 group-hover:scale-105"
-                    sizes="(max-width: 640px) 100vw, 50vw"
-                  />
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.1) 60%)' }} />
-                  <div className="absolute bottom-0 left-0 right-0 p-6">
-                    <h3 className="text-xl font-black text-white mb-1">{col.name}</h3>
-                    {col.description && (
-                      <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.7)' }}>{col.description}</p>
-                    )}
-                    <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
-                      style={{ color: 'rgba(255,255,255,0.9)' }}>
-                      Explore Collection <ArrowRight size={12} />
+              <Link key={col.id} href={`/collections/${col.slug}`} className="group ui-card overflow-hidden block transition-transform hover:-translate-y-0.5">
+                <div className="relative aspect-[4/5] overflow-hidden" style={{ background: 'var(--surface-2)' }}>
+                  <Cover src={col.image_url} alt={col.name} index={i + 1} sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
+                  <span className="ui-chip absolute top-3 left-3" style={{ background: 'var(--surface)', color: 'var(--fg)' }}>{num(i + 1)}</span>
+                </div>
+                <div className="p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <h3 className="ui-heading text-xl">{col.name}</h3>
+                    <span className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors group-hover:bg-[var(--brand)] group-hover:text-[var(--brand-fg)]"
+                      style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }} aria-hidden>
+                      <ArrowRight size={16} />
                     </span>
                   </div>
-                </Link>
-              </ScrollReveal>
+                  {col.description && <p className="text-sm mt-1.5 line-clamp-2" style={{ color: 'var(--fg-muted)' }}>{col.description}</p>}
+                </div>
+              </Link>
             ))}
           </div>
         )}

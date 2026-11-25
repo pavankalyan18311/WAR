@@ -54,7 +54,7 @@ export function useRazorpay({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scriptReady, setScriptReady] = useState(false);
-  const rzpInstanceRef = useRef<ReturnType<typeof window.Razorpay> | null>(null);
+  const rzpInstanceRef = useRef<InstanceType<typeof window.Razorpay> | null>(null);
 
   // Pre-load the Razorpay script as early as possible
   useEffect(() => {
@@ -89,7 +89,7 @@ export function useRazorpay({
         currency: orderData.currency ?? 'INR',
         name: 'WAR Brand',
         description: 'Premium Oversized T-Shirts',
-        image: '/images/War_Logo.png',
+        image: '/images/war-logo-square.png',
         order_id: orderData.razorpay_order_id,
         prefill: orderData.prefill,
         theme: {

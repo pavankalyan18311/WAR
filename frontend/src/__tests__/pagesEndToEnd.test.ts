@@ -6,6 +6,7 @@ import type { Product, ProductVariant } from '../types';
 
 const mockProduct: Product = {
   product_id: 'prod-test-1',
+  id: 'prod-test-1',
   slug: 'test-oversized-tee',
   name: 'Test Oversized Tee',
   description: 'Test description',
@@ -14,14 +15,18 @@ const mockProduct: Product = {
   is_in_stock: true,
   rating: 4.8,
   review_count: 15,
-  images: [{ url: 'https://example.com/tee.jpg' }],
+  status: 'active',
+  images: [{ url: 'https://example.com/tee.jpg', type: 'image' }],
   variants: [
     {
       variant_id: 'var-1',
       product_id: 'prod-test-1',
       size: 'L',
       color: 'Black',
-      stock: 10,
+      sku: 'TEST-L',
+      price: 999,
+      status: 'active',
+      stock_quantity: 10,
     },
   ],
 };
@@ -31,7 +36,7 @@ const mockVariant: ProductVariant = mockProduct.variants![0];
 describe('End-to-End Store Integrity Tests', () => {
   beforeEach(() => {
     useCartStore.getState().clearCart();
-    useWishlistStore.getState().clearWishlist();
+    useWishlistStore.getState().clearItems();
   });
 
   describe('Cart Store Operations', () => {
@@ -81,23 +86,23 @@ describe('End-to-End Store Integrity Tests', () => {
   });
 
   describe('Wishlist Store Operations', () => {
-    it('toggles product in and out of wishlist', () => {
+    it('toggles product in and out of wishlist', async () => {
       const wishlist = useWishlistStore.getState();
       expect(wishlist.isInWishlist(mockProduct.product_id)).toBe(false);
 
-      wishlist.toggleItem(mockProduct);
+      await wishlist.toggleItem(mockProduct);
       expect(useWishlistStore.getState().isInWishlist(mockProduct.product_id)).toBe(true);
 
-      wishlist.toggleItem(mockProduct);
+      await wishlist.toggleItem(mockProduct);
       expect(useWishlistStore.getState().isInWishlist(mockProduct.product_id)).toBe(false);
     });
 
-    it('removes item directly by product_id', () => {
+    it('removes item directly by product_id', async () => {
       const wishlist = useWishlistStore.getState();
-      wishlist.addItem(mockProduct);
+      await wishlist.addItem(mockProduct);
       expect(useWishlistStore.getState().items.length).toBe(1);
 
-      wishlist.removeItem(mockProduct.product_id);
+      await wishlist.removeItem(mockProduct.product_id);
       expect(useWishlistStore.getState().items.length).toBe(0);
     });
   });

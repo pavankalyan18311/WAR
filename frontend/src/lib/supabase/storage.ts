@@ -11,16 +11,6 @@ export async function uploadProductImageToStorage(file: File, productId: string)
     const sanitizedBaseName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
     const fileName = `${productId}/${Date.now()}-${sanitizedBaseName}.${fileExt}`;
 
-    const {
-  data: { user },
-  error: userError,
-} = await supabase.auth.getUser();
-
-console.log('USER:', user);
-console.log('USER ERROR:', userError);
-console.log('APP METADATA:', user?.app_metadata);
-console.log('ROLE:', user?.app_metadata?.role);
-
     // Upload to Supabase Storage bucket "products"
     const { data, error } = await supabase.storage
       .from('products')
@@ -28,8 +18,6 @@ console.log('ROLE:', user?.app_metadata?.role);
         cacheControl: '3600',
         upsert: true,
       });
-      console.log('UPLOAD DATA:', data);
-console.log('UPLOAD ERROR:', error);
 
     if (error) {
       console.warn('Notice uploading to Supabase Storage bucket "products":', error);

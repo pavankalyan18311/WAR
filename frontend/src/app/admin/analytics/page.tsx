@@ -2,131 +2,92 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import {
-  BarChart2,
-  TrendingUp,
-  ShoppingCart,
-  Users,
-  DollarSign,
-  ArrowUpRight,
-  ArrowDownRight,
-  Package,
-} from 'lucide-react';
-
-const REVENUE_BARS = [
-  { day: 'Mon', revenue: 14200, orders: 12 },
-  { day: 'Tue', revenue: 18900, orders: 16 },
-  { day: 'Wed', revenue: 12500, orders: 10 },
-  { day: 'Thu', revenue: 24000, orders: 21 },
-  { day: 'Fri', revenue: 19800, orders: 17 },
-  { day: 'Sat', value: 28500, orders: 25 },
-  { day: 'Sun', revenue: 16400, orders: 14 },
-];
+import { buildAnalytics, type Analytics } from '@/lib/analytics';
+import { TrendingUp, ShoppingCart, Package, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 export default function AdminAnalyticsPage() {
   const supabase = useMemo(() => createClient(), []);
-  const [totalRevenue, setTotalRevenue] = useState(134300);
-  const [totalOrders, setTotalOrders] = useState(115);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchAnalytics = async () => {
-      try {
-        const { data: orders } = await (supabase as any)
-          .from('orders')
-          .select('total');
+      const { data, error } = await supabase
+        .from('orders')
+        .select('total, status, payment_status, created_at');
 
-        if (orders && orders.length > 0) {
-          const rev = orders.reduce((sum: number, o: any) => sum + (o.total || 0), 0);
-          setTotalRevenue(rev);
-          setTotalOrders(orders.length);
-        }
-      } catch (err) {
-        console.error('Failed to fetch analytics from Supabase', err);
+      if (error) {
+        console.error('Failed to fetch analytics from Supabase', error);
+        setError('Could not load analytics. Please refresh.');
+        return;
       }
+      setAnalytics(buildAnalytics(data ?? []));
     };
     fetchAnalytics();
   }, [supabase]);
 
+  const change = analytics?.revenueChangePct ?? null;
+  const maxDayRevenue = Math.max(1, ...(analytics?.last7Days.map((d) => d.revenue) ?? [0]));
+
+  const cards = [
+    { label: 'Gross Revenue', value: analytics ? `₹${analytics.totalRevenue.toLocaleString('en-IN')}` : '—', icon: TrendingUp, color: '#22c55e' },
+    { label: 'Orders', value: analytics ? analytics.totalOrders.toLocaleString('en-IN') : '—', icon: ShoppingCart, color: '#3b82f6' },
+    { label: 'Average Order Value', value: analytics ? `₹${analytics.averageOrderValue.toLocaleString('en-IN')}` : '—', icon: Package, color: '#a855f7' },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Analytics & Reports</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-          Real-time performance metrics and sales statistics
+          Sales from all orders except cancelled, refunded or failed payments
         </p>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>
-              <TrendingUp size={18} />
-            </div>
-            <span className="text-xs font-semibold flex items-center gap-0.5 text-green-500">
-              <ArrowUpRight size={12} /> +15.4%
-            </span>
-          </div>
-          <div className="text-2xl font-bold">₹{totalRevenue.toLocaleString()}</div>
-          <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Gross Revenue</div>
-        </div>
+      {error && (
+        <div className="rounded-xl p-4 text-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>{error}</div>
+      )}
 
-        <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(59,130,246,0.15)', color: '#3b82f6' }}>
-              <ShoppingCart size={18} />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {cards.map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ background: `${color}26`, color }}>
+              <Icon size={18} />
             </div>
-            <span className="text-xs font-semibold flex items-center gap-0.5 text-blue-500">
-              <ArrowUpRight size={12} /> +8.2%
-            </span>
+            <div className="text-2xl font-bold">{value}</div>
+            <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>{label}</div>
           </div>
-          <div className="text-2xl font-bold">{totalOrders}</div>
-          <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Completed Orders</div>
-        </div>
-
-        <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(168,85,247,0.15)', color: '#a855f7' }}>
-              <Package size={18} />
-            </div>
-            <span className="text-xs font-semibold flex items-center gap-0.5 text-purple-500">
-              <ArrowUpRight size={12} /> +4.5%
-            </span>
-          </div>
-          <div className="text-2xl font-bold">₹{Math.round(totalRevenue / Math.max(1, totalOrders)).toLocaleString()}</div>
-          <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Average Order Value</div>
-        </div>
-
-        <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>
-              <Users size={18} />
-            </div>
-            <span className="text-xs font-semibold flex items-center gap-0.5 text-orange-500">
-              <ArrowUpRight size={12} /> +11.0%
-            </span>
-          </div>
-          <div className="text-2xl font-bold">3.2%</div>
-          <div className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>Store Conversion Rate</div>
-        </div>
+        ))}
       </div>
 
-      {/* Chart Section */}
       <div className="rounded-2xl p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-        <h2 className="text-base font-bold mb-4">Daily Sales Performance</h2>
-        <div className="flex items-end gap-4 h-48 pt-6">
-          {REVENUE_BARS.map((b, idx) => (
-            <div key={`${b.day}-${idx}`} className="flex-1 flex flex-col items-center gap-2">
-              <div className="w-full rounded-t-lg transition-all"
-                style={{
-                  height: `${(b.revenue / 30000) * 100}%`,
-                  background: 'var(--primary)',
-                }} />
-              <span className="text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>{b.day}</span>
-            </div>
-          ))}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold">Last 7 Days</h2>
+          {change !== null && (
+            <span className={`text-xs font-semibold flex items-center gap-0.5 ${change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              {change >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+              {change >= 0 ? '+' : ''}{change}% vs previous 7 days
+            </span>
+          )}
         </div>
+        {!analytics ? (
+          <div className="h-48 flex items-center justify-center text-sm" style={{ color: 'var(--fg-muted)' }}>
+            {error ? '—' : 'Loading…'}
+          </div>
+        ) : (
+          <div className="flex items-end gap-4 h-48 pt-6">
+            {analytics.last7Days.map((d) => (
+              <div key={d.date} className="flex-1 h-full flex flex-col items-center justify-end gap-2"
+                title={`₹${d.revenue.toLocaleString('en-IN')} · ${d.orders} orders`}>
+                <div className="w-full rounded-t-lg transition-all"
+                  style={{ height: `${(d.revenue / maxDayRevenue) * 100}%`, minHeight: 2, background: 'var(--primary)' }} />
+                <span className="text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>
+                  {new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

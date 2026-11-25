@@ -3,8 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
+import AuthShell, { FieldLabel, FormNotice } from '@/components/auth/AuthShell';
+
+const STEPS = ['Details', 'Verify email', 'Done'];
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -12,14 +15,10 @@ export default function RegisterPage() {
     flowStage,
     pendingRegistration,
     submitRegistration,
-    requestEmailOtp,
     verifyEmailOtp,
     resetFlow,
     isAuthenticated,
   } = useAuthStore();
-
-  // Surface widget-level errors (account exists, cancelled, etc.)
-
 
   const [emailOtp, setEmailOtp] = useState('');
   const [busy, setBusy] = useState(false);
@@ -64,7 +63,7 @@ export default function RegisterPage() {
       if (form.password.length < 8) throw new Error('Password must be at least 8 characters long.');
       if (form.password !== form.confirmPassword) throw new Error('Passwords do not match.');
       await submitRegistration(form);
-      router.push("/auth/verify-email-otp");
+      router.push('/auth/verify-email-otp');
     });
 
   const handleVerifyEmailOtp = () => wrap(async () => {
@@ -72,126 +71,113 @@ export default function RegisterPage() {
     router.push('/');
   });
 
-  const inputCls = 'w-full rounded-xl px-4 py-3 text-sm outline-none transition-colors';
-  const inputStyle = { background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' };
-
-  const step = {
-    register: 2,
-    email_otp: 3,
-    authenticated: 3,
-  }[stage as string] ?? 2;
+  const step = ({ register: 1, email_otp: 2, authenticated: 3 } as Record<string, number>)[stage as string] ?? 1;
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((p) => ({ ...p, [key]: e.target.value }));
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link href="/" className="text-3xl font-black" style={{ color: 'var(--fg)' }}>WAR</Link>
-          <h1 className="text-xl font-bold mt-4">Create your account</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Verify your email with OTP to create an account, then login with email and password</p>
-        </div>
-
-        <div className="flex items-center justify-center gap-2 mb-6">
-          {[1, 2, 3].map((n) => {
-            const done = n < step;
-            const active = n === step;
-            return (
-              <div key={n} className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center"
-                  style={{
-                    background: done ? 'var(--success)' : active ? 'var(--primary)' : 'var(--bg-elevated)',
-                    color: done || active ? 'var(--primary-fg)' : 'var(--fg-subtle)',
-                  }}>
-                  {done ? <CheckCircle2 size={12} /> : n}
-                </div>
-                {n < 3 && <div className="w-6 h-px" style={{ background: 'var(--border)' }} />}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="rounded-2xl p-8" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          {error && (
-            <div className="rounded-xl px-4 py-3 text-sm mb-4" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
-              {error}
-            </div>
-          )}
-
-          {stage === 'register' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>First Name</label>
-                    <input data-testid="auth-firstname" type="text" value={form.firstName} onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
-                    className={inputCls} style={inputStyle} />
-                </div>
-                <div>
-                  <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>Last Name</label>
-                  <input data-testid="auth-lastname" type="text" value={form.lastName} onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
-                    className={inputCls} style={inputStyle} />
-                </div>
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>Email Address</label>
-                <input data-testid="auth-email" type="email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-                  className={inputCls} style={inputStyle} />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>Date of Birth</label>
-                <input type="date" value={form.dob} onChange={(e) => setForm((p) => ({ ...p, dob: e.target.value }))}
-                  className={inputCls} style={inputStyle} />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>Password</label>
-                <input data-testid="auth-password" type="password" value={form.password} onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
-                  className={inputCls} style={inputStyle} placeholder="Min 8 characters" />
-              </div>
-              <div>
-                <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>Confirm Password</label>
-                <input data-testid="auth-confirm-password" type="password" value={form.confirmPassword} onChange={(e) => setForm((p) => ({ ...p, confirmPassword: e.target.value }))}
-                  className={inputCls} style={inputStyle} />
-              </div>
-              <button type="button" onClick={handleSubmitRegistration} disabled={busy}
-                className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-                style={{ background: 'var(--primary)', color: 'var(--primary-fg)', opacity: busy ? 0.7 : 1 }}>
-                {busy ? 'Preparing email verification...' : <>Verify Email <ArrowRight size={16} /></>}
-              </button>
-            </div>
-          )}
-
-          {stage === 'email_otp' && (
-            <div className="space-y-4">
-              <p className="text-sm" style={{ color: 'var(--fg-muted)' }}>OTP sent to {pendingRegistration?.email}</p>
-              <div>
-                <label className="text-sm font-medium block mb-1.5" style={{ color: 'var(--fg-muted)' }}>Email OTP</label>
-                <input data-testid="auth-email-otp" type="text" value={emailOtp} onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  className={inputCls} style={inputStyle} placeholder="6-digit OTP" />
-              </div>
-              <button type="button" onClick={handleVerifyEmailOtp} disabled={busy || emailOtp.length !== 6}
-                className="w-full py-3.5 rounded-xl font-bold text-sm"
-                style={{ background: 'var(--primary)', color: 'var(--primary-fg)', opacity: busy || emailOtp.length !== 6 ? 0.7 : 1 }}>
-                {busy ? 'Verifying...' : 'Create Account'}
-              </button>
-            </div>
-          )}
-
-          <div className="mt-5 pt-4 flex items-center gap-2 text-xs" style={{ borderTop: '1px solid var(--border)', color: 'var(--fg-subtle)' }}>
-            <ShieldCheck size={13} /> Passwords are stored as secure hashes and sessions use JWT-style tokens.
-          </div>
-
-          <p className="text-center text-xs mt-4" style={{ color: 'var(--fg-muted)' }}>
-            By creating an account, you agree to our{' '}
-            <Link href="/terms" className="underline">Terms of Service</Link> and{' '}
-            <Link href="/privacy" className="underline">Privacy Policy</Link>.
-          </p>
-
-          <p className="text-center text-sm mt-4" style={{ color: 'var(--fg-muted)' }}>
+    <AuthShell
+      image="/images/full-width-brand.png"
+      eyebrow="Join WAR"
+      title="Create your account"
+      subtitle="We'll send a one-time code to your email to confirm it's you. After that, sign in with your email and password."
+      footer={
+        <div className="space-y-3">
+          <p>
             Already have an account?{' '}
-            <Link href="/auth/login" className="font-semibold" style={{ color: 'var(--primary)' }}>
+            <Link href="/auth/login" className="ui-link">
               Sign in with Email & Password
             </Link>
           </p>
+          <p className="text-xs">
+            By creating an account, you agree to our{' '}
+            <Link href="/terms-of-service" className="underline">Terms of Service</Link> and{' '}
+            <Link href="/privacy-policy" className="underline">Privacy Policy</Link>.
+          </p>
         </div>
-      </div>
-    </div>
+      }
+    >
+      {/* Steps */}
+      <ol className="flex items-center gap-2 mb-8" aria-label="Registration steps">
+        {STEPS.map((label, i) => {
+          const n = i + 1;
+          const done = n < step;
+          const current = n === step;
+          return (
+            <li key={label} className="flex-1 flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold"
+              style={{
+                background: current ? 'var(--brand)' : done ? 'var(--brand-soft)' : 'var(--surface-2)',
+                color: current ? 'var(--brand-fg)' : done ? 'var(--brand)' : 'var(--fg-subtle)',
+              }}
+              aria-current={current ? 'step' : undefined}>
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                style={{ background: current ? 'rgba(255,255,255,0.25)' : 'transparent', border: current ? 'none' : '1.5px solid currentColor' }}>
+                {done ? '✓' : n}
+              </span>
+              <span className="truncate">{label}</span>
+            </li>
+          );
+        })}
+      </ol>
+
+      {error && <FormNotice>{error}</FormNotice>}
+
+      {stage === 'register' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <FieldLabel htmlFor="reg-first">First name</FieldLabel>
+              <input id="reg-first" data-testid="auth-firstname" type="text" autoComplete="given-name"
+                value={form.firstName} onChange={set('firstName')} className="ui-input" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="reg-last">Last name</FieldLabel>
+              <input id="reg-last" data-testid="auth-lastname" type="text" autoComplete="family-name"
+                value={form.lastName} onChange={set('lastName')} className="ui-input" />
+            </div>
+          </div>
+          <div>
+            <FieldLabel htmlFor="reg-email">Email address</FieldLabel>
+            <input id="reg-email" data-testid="auth-email" type="email" autoComplete="email"
+              value={form.email} onChange={set('email')} className="ui-input" placeholder="you@example.com" />
+          </div>
+          <div>
+            <FieldLabel htmlFor="reg-dob">Date of birth</FieldLabel>
+            <input id="reg-dob" type="date" autoComplete="bday" value={form.dob} onChange={set('dob')} className="ui-input" />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <FieldLabel htmlFor="reg-pw">Password</FieldLabel>
+              <input id="reg-pw" data-testid="auth-password" type="password" autoComplete="new-password"
+                value={form.password} onChange={set('password')} className="ui-input" placeholder="Min 8 characters" />
+            </div>
+            <div>
+              <FieldLabel htmlFor="reg-pw2">Confirm password</FieldLabel>
+              <input id="reg-pw2" data-testid="auth-confirm-password" type="password" autoComplete="new-password"
+                value={form.confirmPassword} onChange={set('confirmPassword')} className="ui-input" />
+            </div>
+          </div>
+          <button type="button" onClick={handleSubmitRegistration} disabled={busy} className="ui-btn w-full !py-4 mt-2">
+            {busy ? 'Preparing email verification...' : <>Verify Email <ArrowRight size={15} /></>}
+          </button>
+        </div>
+      )}
+
+      {stage === 'email_otp' && (
+        <div className="space-y-5">
+          <p className="text-sm" style={{ color: 'var(--fg-muted)' }}>
+            OTP sent to <strong style={{ color: 'var(--fg)' }}>{pendingRegistration?.email}</strong>
+          </p>
+          <div>
+            <FieldLabel htmlFor="reg-otp">Email OTP</FieldLabel>
+            <input id="reg-otp" data-testid="auth-email-otp" type="text" inputMode="numeric" autoComplete="one-time-code"
+              value={emailOtp} onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="ui-input text-center font-bold !text-2xl tracking-[0.5em]" placeholder="••••••" />
+          </div>
+          <button type="button" onClick={handleVerifyEmailOtp} disabled={busy || emailOtp.length !== 6} className="ui-btn w-full !py-4">
+            {busy ? 'Verifying...' : 'Create Account'}
+          </button>
+        </div>
+      )}
+    </AuthShell>
   );
 }

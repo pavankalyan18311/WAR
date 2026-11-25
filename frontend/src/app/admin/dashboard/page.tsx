@@ -7,7 +7,6 @@ import {
   ShoppingCart,
   Users,
   Package,
-  ArrowUpRight,
   Clock,
   CheckCircle2,
   Truck,
@@ -78,20 +77,22 @@ export default function AdminDashboardPage() {
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [loadError, setLoadError] = useState('');
+
   const fetchDashboard = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const res = await fetch('/api/admin/dashboard');
-      if (res.ok) {
-        const dash = await res.json();
-        setStats(dash.stats);
-        setWeeklyRevenue(dash.weeklyRevenue ?? []);
-        setStatusBreakdown(dash.statusBreakdown ?? []);
-        setTopProducts(dash.topProducts ?? []);
-        setRecentOrders(dash.recentOrders ?? []);
-      }
-    } catch (err) {
-      console.error('Dashboard fetch error:', err);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not load the dashboard.');
+      const dash = await res.json();
+      setStats(dash.stats);
+      setWeeklyRevenue(dash.weeklyRevenue ?? []);
+      setStatusBreakdown(dash.statusBreakdown ?? []);
+      setTopProducts(dash.topProducts ?? []);
+      setRecentOrders(dash.recentOrders ?? []);
+    } catch (err: any) {
+      setLoadError(err.message === 'Failed to fetch' ? 'Could not reach the server. Please retry.' : err.message);
     } finally {
       setLoading(false);
     }
@@ -130,6 +131,14 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
+      {loadError && (
+        <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-semibold"
+          style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>
+          {loadError}
+          <button onClick={fetchDashboard} className="px-3 py-1 rounded-lg text-xs" style={{ background: 'var(--bg-card)', color: 'var(--fg)' }}>Retry</button>
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {STAT_CONFIGS.map(({ key, label, icon: Icon, color, format }) => (
@@ -142,10 +151,7 @@ export default function AdminDashboardPage() {
               <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${color}20` }}>
                 <Icon size={18} style={{ color }} />
               </div>
-              <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: '#22c55e' }}>
-                <ArrowUpRight size={12} />
-                Live
-              </span>
+              <span className="text-xs font-semibold" style={{ color: 'var(--fg-muted)' }}>Live</span>
             </div>
             <div className="text-2xl font-bold">
               {loading ? '—' : stats ? format(stats[key]) : '—'}

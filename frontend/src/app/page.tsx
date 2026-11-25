@@ -1,134 +1,138 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { Shield, RotateCcw, Truck, CreditCard, ArrowRight } from 'lucide-react';
-import { getProducts } from '@/lib/supabase/queries';
-import { formatPrice } from '@/lib/utils';
+import { ArrowRight } from 'lucide-react';
+import { getBestSellers, getCollections, getProducts } from '@/lib/supabase/queries';
+import type { Product } from '@/types';
 import HeroVideoBanner from '@/components/home/HeroVideoBanner';
+import NewsletterForm from '@/components/home/NewsletterForm';
+import ProductCard from '@/components/product/ProductCard';
+import Marquee from '@/components/home/Marquee';
+import InstagramReels from '@/components/home/InstagramReels';
+import { DEFAULT_MARQUEE, loadHomeContent } from '@/lib/homeContent';
+import { getServiceClient } from '@/lib/admin/routeHelpers';
+import ScrollReveal from '@/components/ui/ScrollReveal';
 
-const FEATURES = [
-  { icon: Shield, label: 'Premium 240+ GSM', desc: 'Heavyweight cotton built to last' },
-  { icon: RotateCcw, label: 'Oversized Streetwear Fit', desc: 'Relaxed, dropped-shoulder silhouette' },
-  { icon: Truck, label: 'Free Shipping', desc: 'On orders above ₹999' },
-  { icon: RotateCcw, label: 'Easy Returns', desc: '7 Day hassle-free returns' },
-  { icon: CreditCard, label: 'Made For Everyday', desc: 'Designed for comfort and confidence' },
-];
+
+/** "01 — New in" style heading used by every home section. */
+function SectionHead({ index, title, href, cta }: { index: string; title: string; href?: string; cta?: string }) {
+  return (
+    <div className="flex items-end justify-between gap-6 pb-6 mb-8 border-b" style={{ borderColor: 'var(--border-strong)' }}>
+      <div>
+        <p className="eyebrow mb-3">{index}</p>
+        <h2 style={{ fontSize: 'clamp(2rem, 4vw, 3.25rem)', lineHeight: 1 }}>{title}</h2>
+      </div>
+      {href && (
+        <Link href={href} className="link-rule text-[11px] font-semibold uppercase tracking-[0.2em] whitespace-nowrap inline-flex items-center gap-2">
+          {cta} <ArrowRight size={13} />
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// Banner and reels are edited in Admin → Homepage — always show the latest.
+export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
-  const allProducts = await getProducts({ limit: 8 });
-  const featured = allProducts.slice(0, 4);
-  const bestSellers = allProducts.slice(4, 8).length > 0 ? allProducts.slice(4, 8) : featured;
+  const [newIn, bestSellers, collections, home] = await Promise.all([
+    getProducts({ limit: 8 }) as Promise<Product[]>,
+    getBestSellers(4) as Promise<Product[]>,
+    getCollections() as Promise<any[]>,
+    loadHomeContent(getServiceClient()).catch(() => ({ marquee: DEFAULT_MARQUEE, instagramUrl: null, reels: [] })),
+  ]);
 
   return (
     <main>
-      {/* ── HERO ─────────────────────────────────────────────── */}
       <HeroVideoBanner />
 
-      {/* ── TRUST BAR ────────────────────────────────────────── */}
-      <section style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-7xl mx-auto px-5 sm:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-5" style={{ borderLeft: '1px solid var(--border)' }}>
-            {FEATURES.map(({ icon: Icon, label, desc }) => (
-              <div key={label} className="flex items-center gap-3 px-5 py-5" style={{ borderRight: '1px solid var(--border)' }}>
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'var(--bg-elevated)' }}>
-                  <Icon size={18} style={{ color: 'var(--fg-muted)' }} />
-                </div>
-                <div>
-                  <p className="text-xs font-bold" style={{ color: 'var(--fg)' }}>{label}</p>
-                  <p className="text-xs" style={{ color: 'var(--fg-muted)' }}>{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Scrolling banner — text and colours from Admin → Homepage */}
+      <Marquee settings={home.marquee} />
 
-      {/* ── NEW DROPS ─────────────────────────────────────── */}
-      <section className="py-10" style={{ background: '#0B0B0B' }}>
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-3 pr-2">
-            <p className="text-xs font-black tracking-[0.2em] uppercase mb-2" style={{ color: '#d4d4d4' }}>New Drops</p>
-            <h2 className="text-4xl font-extrabold leading-tight mb-4" style={{ color: '#fff' }}>
-              Fresh Drops.
-              <br />
-              Every Week.
-            </h2>
-            <p className="text-sm leading-relaxed" style={{ color: '#b3b3b3' }}>
-              New oversized t-shirts designed for the streets. Don&apos;t miss out.
-            </p>
-            <Link href="/products" className="inline-flex items-center gap-2 mt-8 text-sm font-bold uppercase tracking-[0.08em]" style={{ color: '#fff' }}>
-              View All New Drops <ArrowRight size={14} />
+      {/* 01 — New in */}
+      {newIn.length > 0 && (
+        <ScrollReveal as="section" className="w-full max-w-7xl mx-auto px-5 sm:px-8 py-20">
+          <SectionHead index="01 — New in" title="The latest drop" href="/products?sort=newest" cta="Shop all new" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-10 sm:gap-x-6">
+            {newIn.map((p) => <ProductCard key={p.product_id} product={p} />)}
+          </div>
+        </ScrollReveal>
+      )}
+
+      {/* 02 — Brand statement */}
+      <ScrollReveal as="section" style={{ background: '#161412', color: '#F5F2EC' }}>
+        <div className="max-w-7xl mx-auto grid md:grid-cols-2">
+          <div className="relative min-h-[320px] md:min-h-[480px]">
+            <Image src="/images/full-width-brand.png" alt="WAR crew wearing oversized tees" fill className="object-cover" sizes="(max-width: 768px) 100vw, 50vw" />
+          </div>
+          <div className="px-6 sm:px-12 py-16 flex flex-col justify-center">
+            <p className="eyebrow mb-6" style={{ color: 'rgba(245,242,236,0.6)' }}>02 — The idea</p>
+            <blockquote className="font-display leading-[1.1]" style={{ fontSize: 'clamp(1.9rem, 3.4vw, 3rem)' }}>
+              &ldquo;Not just a tee. A decision to wear what you mean —{' '}
+              <em style={{ color: '#D9776F' }}>without any regrets.</em>&rdquo;
+            </blockquote>
+            <Link href="/products" className="mt-10 self-start text-[11px] font-semibold uppercase tracking-[0.2em] inline-flex items-center gap-2 border-b pb-1"
+              style={{ borderColor: 'rgba(245,242,236,0.5)' }}>
+              Explore the range <ArrowRight size={13} />
             </Link>
           </div>
+        </div>
+      </ScrollReveal>
 
-          <div className="lg:col-span-9 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            {featured.map((p) => (
-              <Link key={p.product_id || p.id} href={`/products/${p.slug}`} className="block rounded-md overflow-hidden" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div className="relative aspect-[3/4]">
-                  <Image src={p.images?.[0]?.url ?? 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800'} alt={p.name} fill className="object-cover" />
+      {/* 03 — Collections */}
+      {collections.length > 0 && (
+        <ScrollReveal as="section" className="w-full max-w-7xl mx-auto px-5 sm:px-8 py-20">
+          <SectionHead index="03 — Collections" title="Shop by edit" href="/collections" cta="All collections" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {collections.slice(0, 3).map((c: any, i: number) => (
+              <Link key={c.id} href={`/collections/${c.slug}`} className="group block">
+                <div className="relative aspect-[4/5] overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+                  {c.image_url ? (
+                    <Image src={c.image_url} alt={c.name} fill className="object-cover transition-transform duration-700 group-hover:scale-[1.03]" sizes="(max-width: 1024px) 50vw, 33vw" />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center font-display text-7xl" style={{ color: 'var(--fg-subtle)' }}>
+                      {String(i + 1).padStart(2, '0')}
+                    </div>
+                  )}
                 </div>
-                <div className="p-2.5">
-                  <p className="text-xs sm:text-sm font-semibold line-clamp-1" style={{ color: '#fff' }}>{p.name}</p>
-                  <p className="mt-1 text-base font-black" style={{ color: '#fff' }}>{formatPrice(p.discount_price ?? p.price)}</p>
+                <div className="flex items-baseline justify-between mt-4">
+                  <h3 className="text-2xl">{c.name}</h3>
+                  <span className="text-[11px] uppercase tracking-[0.2em] link-rule">Shop</span>
                 </div>
+                {c.description && <p className="text-sm mt-1 line-clamp-2" style={{ color: 'var(--fg-muted)' }}>{c.description}</p>}
               </Link>
             ))}
           </div>
-        </div>
-      </section>
+        </ScrollReveal>
+      )}
 
-      {/* ── BEST SELLERS STRIP ─────────────────────────────────────── */}
-      <section className="py-10" style={{ background: '#121212', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-3 pr-2">
-            <p className="text-xs font-black tracking-[0.2em] uppercase mb-2" style={{ color: '#d4d4d4' }}>MOST WANTED</p>
-            <h2 className="text-4xl font-extrabold leading-tight mb-4" style={{ color: '#fff' }}>
-              Best-Selling
-              <br />
-              Essentials.
-            </h2>
-            <p className="text-sm leading-relaxed" style={{ color: '#b3b3b3' }}>
-              The oversized essentials our community keeps coming back for.
-            </p>
-            <Link href="/products?sort=popular" className="inline-flex items-center gap-2 mt-8 text-sm font-bold uppercase tracking-[0.08em]" style={{ color: '#fff' }}>
-              View All Best Sellers <ArrowRight size={14} />
-            </Link>
+      {/* 04 — Best sellers (only when there are real sales) */}
+      {bestSellers.length > 0 && (
+        <ScrollReveal as="section" className={`w-full max-w-7xl mx-auto px-5 sm:px-8 ${collections.length > 0 ? 'pb-20' : 'py-20'}`}>
+          <SectionHead index="04 — Most wanted" title="Best sellers" href="/products?sort=popular" cta="Shop best sellers" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-10 sm:gap-x-6">
+            {bestSellers.map((p) => <ProductCard key={p.product_id} product={p} />)}
           </div>
+        </ScrollReveal>
+      )}
 
-          <div className="lg:col-span-9 grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            {bestSellers.map((p) => (
-              <Link key={p.product_id || p.id} href={`/products/${p.slug}`} className="block rounded-md overflow-hidden group transition-all" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div className="relative aspect-[3/4]">
-                  <Image src={p.images?.[0]?.url ?? 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=800'} alt={p.name} fill className="object-cover transition-transform duration-500 group-hover:scale-105" />
-                </div>
-                <div className="p-2.5">
-                  <p className="text-xs sm:text-sm font-semibold line-clamp-1" style={{ color: '#fff' }}>{p.name}</p>
-                  <p className="mt-1 text-base font-black" style={{ color: '#fff' }}>{formatPrice(p.discount_price ?? p.price)}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Instagram reels — managed in Admin → Homepage (hidden until reels are added) */}
+      <InstagramReels reels={home.reels} instagramUrl={home.instagramUrl} />
 
-      {/* ── BRAND BAND ─────────────────────────────────────── */}
-      <section className="relative h-[230px] md:h-[280px] overflow-hidden">
-        <Image src={'/images/full-width-brand.png'} alt="WAR crew" fill className="object-cover" sizes="100vw" />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.30) 65%, rgba(0,0,0,0.25) 100%)' }} />
-        <div className="relative z-10 h-full max-w-7xl mx-auto px-5 sm:px-8 flex items-center">
+      {/* Newsletter */}
+      <ScrollReveal as="section" style={{ background: '#161412', color: '#F5F2EC' }}>
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 py-20 grid md:grid-cols-2 gap-10 items-end">
           <div>
-            <p className="text-xs font-black tracking-[0.2em] uppercase mb-2" style={{ color: '#d4d4d4' }}>Made for the Streets</p>
-            <h3 className="text-4xl md:text-5xl font-extrabold leading-tight" style={{ color: '#fff' }}>
-              Not just a tee.
-              <br />
-              It&apos;s an attitude.
-            </h3>
-            <Link href="/products?category=oversized" className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 text-xs font-extrabold uppercase tracking-[0.08em]" style={{ border: '1px solid rgba(255,255,255,0.45)', color: '#fff' }}>
-              Explore Collection <ArrowRight size={13} />
-            </Link>
+            <p className="eyebrow mb-4" style={{ color: 'rgba(245,242,236,0.6)' }}>Letters from WAR</p>
+            <h2 style={{ fontSize: 'clamp(2rem, 4vw, 3.25rem)', lineHeight: 1.02 }}>
+              First word on every <em style={{ color: '#D9776F' }}>drop.</em>
+            </h2>
+            <p className="mt-4 text-sm max-w-md" style={{ color: 'rgba(245,242,236,0.65)' }}>
+              New releases and restocks, straight to your inbox. No spam — unsubscribe any time.
+            </p>
           </div>
+          <NewsletterForm />
         </div>
-      </section>
+      </ScrollReveal>
     </main>
   );
 }

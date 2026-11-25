@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/apiAuth';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -13,8 +14,12 @@ function getAdminClient() {
 }
 
 /** PATCH /api/admin/collections/[id] — update a collection */
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
+
   try {
+    const { id } = await params;
     const body = await request.json();
     const supabase = getAdminClient();
 
@@ -27,7 +32,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const { data, error } = await supabase
       .from('collections')
       .update(updatePayload)
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 
@@ -39,10 +44,14 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 }
 
 /** DELETE /api/admin/collections/[id] — delete a collection */
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
+
   try {
+    const { id } = await params;
     const supabase = getAdminClient();
-    const { error } = await supabase.from('collections').delete().eq('id', params.id);
+    const { error } = await supabase.from('collections').delete().eq('id', id);
     if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (err: any) {

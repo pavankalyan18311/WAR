@@ -1,9 +1,15 @@
 import type { Metadata } from 'next';
+import { Fraunces, Inter } from 'next/font/google';
 import './globals.css';
+
+// Classic serif for headings + clean sans for everything else.
+const display = Fraunces({ subsets: ['latin'], variable: '--font-display', display: 'swap', axes: ['opsz', 'SOFT'] });
+const sans = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' });
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import CartDrawer from '@/components/cart/CartDrawer';
 import ChatWidget from '@/components/chat/ChatWidget';
+import BackToTop from '@/components/ui/BackToTop';
 import PremiumAuthModal from '@/components/auth/PremiumAuthModal';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import PageTransition from '@/components/ui/PageTransition';
@@ -25,7 +31,7 @@ export default function RootLayout({
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className="h-full antialiased"
+      className={`h-full antialiased ${display.variable} ${sans.variable}`}
     >
       <body className="min-h-screen flex flex-col font-sans h-full" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
         <ThemeProvider>
@@ -39,6 +45,7 @@ export default function RootLayout({
           </div>
           <CartDrawer />
           <ChatWidget />
+          <BackToTop />
           <PremiumAuthModal />
         </ThemeProvider>
       </body>

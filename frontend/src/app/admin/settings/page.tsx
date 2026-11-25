@@ -1,33 +1,118 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Save, RotateCcw, Image as ImageIcon, Video, Timer, BadgeCheck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Save, RotateCcw, Image as ImageIcon, Video, Timer, BadgeCheck, Truck } from 'lucide-react';
 import { useAuthPopupStore } from '@/store/authPopupStore';
+import { useCartStore } from '@/store/cartStore';
+import ProductOptionsCard from '@/components/admin/ProductOptionsCard';
+import DefaultSizeChartCard from '@/components/admin/DefaultSizeChartCard';
+import ShiprocketSettingsCard from '@/components/admin/ShiprocketSettingsCard';
 
 const DELAY_OPTIONS = [5000, 10000, 15000, 30000];
 
+const fieldStyle = { background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' };
+
+/** Free-delivery rules and COD switch — saved to the database, used by cart and checkout. */
+function ShippingSettingsCard() {
+  const current = useCartStore((s) => s.shippingSettings);
+  const loadShippingSettings = useCartStore((s) => s.loadShippingSettings);
+  const [threshold, setThreshold] = useState(String(current.free_shipping_threshold));
+  const [fee, setFee] = useState(String(current.shipping_fee));
+  const [codEnabled, setCodEnabled] = useState(current.cod_enabled);
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { loadShippingSettings(); }, [loadShippingSettings]);
+  useEffect(() => {
+    setThreshold(String(current.free_shipping_threshold));
+    setFee(String(current.shipping_fee));
+    setCodEnabled(current.cod_enabled);
+  }, [current]);
+
+  const save = async () => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ free_shipping_threshold: Number(threshold), shipping_fee: Number(fee), cod_enabled: codEnabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save settings.');
+      await loadShippingSettings();
+      setStatus({ ok: true, text: 'Shipping settings saved' });
+    } catch (err: any) {
+      setStatus({ ok: false, text: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <h2 className="font-semibold inline-flex items-center gap-2"><Truck size={16} /> Shipping & Payments</h2>
+      <div className="mt-4 grid sm:grid-cols-2 gap-4">
+        <label className="text-sm" style={{ color: 'var(--fg-muted)' }}>
+          Free delivery on orders above (₹)
+          <input type="number" min={0} value={threshold} onChange={(e) => setThreshold(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-lg text-sm" style={fieldStyle} />
+        </label>
+        <label className="text-sm" style={{ color: 'var(--fg-muted)' }}>
+          Delivery fee below that amount (₹)
+          <input type="number" min={0} value={fee} onChange={(e) => setFee(e.target.value)}
+            className="mt-1 w-full px-3 py-2 rounded-lg text-sm" style={fieldStyle} />
+        </label>
+        <label className="flex items-center justify-between sm:col-span-2">
+          <span className="text-sm" style={{ color: 'var(--fg-muted)' }}>Allow Cash on Delivery</span>
+          <input type="checkbox" checked={codEnabled} onChange={(e) => setCodEnabled(e.target.checked)} />
+        </label>
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button type="button" onClick={save} disabled={saving}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
+          style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+          <Save size={14} /> {saving ? 'Saving…' : 'Save Shipping Settings'}
+        </button>
+        {status && <span className="text-sm font-semibold" style={{ color: status.ok ? '#22c55e' : '#ef4444' }}>{status.text}</span>}
+      </div>
+    </section>
+  );
+}
+
 export default function AdminSettingsPage() {
-  const { config, updateConfig, resetDefaults } = useAuthPopupStore();
+  const { config, updateConfig, resetDefaults, loadConfig, saveConfig } = useAuthPopupStore();
   const [customDelay, setCustomDelay] = useState(String(config.delayMs));
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => {
+    loadConfig().then(() => setCustomDelay(String(useAuthPopupStore.getState().config.delayMs)));
+  }, [loadConfig]);
 
   const delayLabel = useMemo(() => {
     if (DELAY_OPTIONS.includes(config.delayMs)) return `${config.delayMs / 1000}s`;
     return `${Math.round(config.delayMs / 1000)}s (Custom)`;
   }, [config.delayMs]);
 
-  const persistSavedToast = () => {
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1400);
+  const persistSavedToast = async () => {
+    setSaveError('');
+    try {
+      await saveConfig();
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1400);
+    } catch (err: any) {
+      setSaveError(err.message);
+    }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Authentication Popup</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Store Settings</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-            Configure the luxury authentication modal experience for guest users.
+            Shipping rules, payment options and the sign-up popup shown to visitors.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -36,7 +121,6 @@ export default function AdminSettingsPage() {
             onClick={() => {
               resetDefaults();
               setCustomDelay('10000');
-              persistSavedToast();
             }}
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold"
             style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
@@ -49,7 +133,7 @@ export default function AdminSettingsPage() {
             className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold"
             style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
           >
-            <Save size={14} /> Save
+            <Save size={14} /> Save Popup
           </button>
         </div>
       </div>
@@ -57,9 +141,17 @@ export default function AdminSettingsPage() {
       {saved && (
         <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold"
           style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.22)' }}>
-          <BadgeCheck size={14} /> Settings saved
+          <BadgeCheck size={14} /> Popup settings saved
         </div>
       )}
+      {saveError && (
+        <div className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}>{saveError}</div>
+      )}
+
+      <ShippingSettingsCard />
+      <ShiprocketSettingsCard />
+      <DefaultSizeChartCard />
+      <ProductOptionsCard />
 
       <div className="grid lg:grid-cols-2 gap-5">
         <section className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>

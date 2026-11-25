@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/apiAuth';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,9 @@ function getAdminClient() {
 
 /** GET /api/admin/collections — list all collections */
 export async function GET() {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
+
   try {
     const supabase = getAdminClient();
     const { data, error } = await supabase
@@ -30,6 +34,9 @@ export async function GET() {
 
 /** POST /api/admin/collections — create a new collection */
 export async function POST(request: Request) {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
+
   try {
     const body = await request.json();
     const { name, slug, description, image_url, is_active } = body;

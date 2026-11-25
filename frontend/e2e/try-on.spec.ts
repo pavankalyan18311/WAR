@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Size Guide Page', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/try-on')
+    await page.goto('/size-guide')
   })
 
   test('renders page heading and size table', async ({ page }) => {

@@ -2,16 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Package, ArrowLeft, ExternalLink, Clock, CheckCircle2, Truck, RefreshCw, AlertCircle, User, Heart, LogOut } from 'lucide-react';
+import { ArrowRight, ShoppingBag, Truck } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
-import ScrollReveal from '@/components/ui/ScrollReveal';
-import { createClient } from '@/lib/supabase/client';
+import { getUserDisplayInfo } from '@/lib/userDisplay';
+import { formatPrice } from '@/lib/utils';
+import { orderReference } from '@/lib/checkout/client';
+import ProductImage from '@/components/product/ProductImage';
+import { AccountShell, Meta, StatusChip, paymentLabel } from '@/components/account/AccountShell';
 
 interface OrderItem {
   id: string;
   quantity: number;
   unit_price: number;
   total_price: number;
+  status?: string;
   product?: {
     name: string;
     slug: string;
@@ -33,27 +37,14 @@ interface Order {
   payment_method: string;
   payment_status: string;
   tracking_number?: string;
+  notes?: string | Record<string, any> | null;
+  shipping_address?: Record<string, any> | null;
   created_at: string;
   order_items?: OrderItem[];
 }
 
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: any }> = {
-  pending: { label: 'Pending Payment', bg: 'rgba(234, 179, 8, 0.12)', text: '#eab308', icon: Clock },
-  confirmed: { label: 'Order Confirmed', bg: 'rgba(59, 130, 246, 0.12)', text: '#3b82f6', icon: CheckCircle2 },
-  processing: { label: 'Processing', bg: 'rgba(168, 85, 247, 0.12)', text: '#a855f7', icon: RefreshCw },
-  shipped: { label: 'Out for Delivery', bg: 'rgba(14, 165, 233, 0.12)', text: '#0ea5e9', icon: Truck },
-  delivered: { label: 'Delivered', bg: 'rgba(34, 197, 94, 0.12)', text: '#22c55e', icon: CheckCircle2 },
-  cancelled: { label: 'Cancelled', bg: 'rgba(239, 68, 68, 0.12)', text: '#ef4444', icon: AlertCircle },
-};
-
-const NAV_LINKS = [
-  { href: '/account/profile', label: 'Profile & Addresses', icon: User },
-  { href: '/account/orders', label: 'My Orders', icon: Package, active: true },
-  { href: '/wishlist', label: 'Wishlist', icon: Heart },
-];
-
 export default function UserOrdersPage() {
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,7 +54,7 @@ export default function UserOrdersPage() {
 
       if (user?.id) {
         try {
-          const response = await fetch(`/api/orders?user_id=${user.id}`);
+          const response = await fetch(`/api/orders`);
           if (response.ok) {
             const resData = await response.json();
             if (resData.orders && Array.isArray(resData.orders)) {
@@ -85,190 +76,102 @@ export default function UserOrdersPage() {
     fetchOrders();
   }, [user?.id]);
 
-
-  const displayName = user?.user_metadata?.first_name || (user as any)?.name || 'Customer';
-  const displayEmail = user?.email || '';
+  const firstName = user ? getUserDisplayInfo(user).name.split(' ')[0] : '';
 
   return (
-    <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10">
-          <p className="text-xs font-bold tracking-[0.3em] uppercase mb-1" style={{ color: 'var(--accent)' }}>Dashboard</p>
-          <h1 className="text-2xl font-black" style={{ color: 'var(--fg)' }}>My Orders</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Track, manage, and view your purchase history</p>
+    <AccountShell
+      active="orders"
+      eyebrow={firstName ? `Hello, ${firstName}` : 'Your account'}
+      title="My orders"
+      subtitle="Track, manage and look back at everything you've ordered."
+      onLogout={async () => { await logout(); }}
+    >
+      {loading ? (
+        <div className="space-y-4">
+          {[0, 1].map((i) => <div key={i} className="h-40 skeleton rounded-2xl" />)}
         </div>
-      </div>
-
-      {/* Mobile Navigation Bar */}
-      <div className="md:hidden border-b overflow-x-auto no-scrollbar" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-        <div className="flex px-5 py-2.5 gap-2 min-w-max">
-          {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
-            <Link key={href} href={href}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all"
-              style={{
-                background: active ? 'var(--primary)' : 'var(--bg-elevated)',
-                color: active ? 'var(--primary-fg)' : 'var(--fg-muted)',
-                border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
-              }}>
-              <Icon size={14} />
-              {label}
-            </Link>
-          ))}
+      ) : orders.length === 0 ? (
+        <div className="ui-card py-14 px-6 text-center">
+          <span className="mx-auto mb-5 w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+            <ShoppingBag size={28} />
+          </span>
+          <h2 className="ui-heading text-2xl sm:text-3xl mb-2" style={{ color: 'var(--fg)' }}>No orders yet.</h2>
+          <p className="text-[15px] max-w-sm mx-auto mb-7" style={{ color: 'var(--fg-muted)' }}>
+            When you place an order it will appear here, with live tracking from packing to your door.
+          </p>
+          <Link href="/products" className="ui-btn">Explore the shop <ArrowRight size={16} /></Link>
         </div>
-      </div>
-
-      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10">
-        <div className="flex gap-8">
-          {/* Sidebar Navigation */}
-          <aside className="hidden md:block w-48 flex-shrink-0">
-            <nav className="space-y-1">
-              {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
-                <Link key={href} href={href}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all"
-                  style={{
-                    background: active ? 'var(--bg-elevated)' : 'transparent',
-                    color: active ? 'var(--fg)' : 'var(--fg-muted)',
-                    border: active ? '1px solid var(--border)' : '1px solid transparent',
-                  }}>
-                  <Icon size={15} />
-                  {label}
-                </Link>
-              ))}
-              <button
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-70"
-                onClick={async () => { await logout(); }}
-                style={{ color: 'var(--danger)' }}
-              >
-                <LogOut size={15} />
-                Sign Out
-              </button>
-            </nav>
-          </aside>
-
-          {/* Orders List */}
-          <div className="flex-1 min-w-0 space-y-6">
-            {loading ? (
-              <div className="rounded-2xl p-12 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <RefreshCw size={28} className="animate-spin mx-auto mb-3" style={{ color: 'var(--accent)' }} />
-                <p className="text-sm font-semibold" style={{ color: 'var(--fg-muted)' }}>Loading your orders...</p>
-              </div>
-            ) : orders.length === 0 ? (
-              <ScrollReveal animation="fade-up">
-                <div className="rounded-2xl p-12 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  <Package size={48} className="mx-auto mb-4" style={{ color: 'var(--fg-subtle)' }} />
-                  <h3 className="text-lg font-bold" style={{ color: 'var(--fg)' }}>No orders yet</h3>
-                  <p className="text-sm mt-1 mb-6 max-w-sm mx-auto" style={{ color: 'var(--fg-muted)' }}>
-                    Looks like you haven't placed any orders yet. Discover our latest oversized collection and drop shirts!
-                  </p>
-                  <Link
-                    href="/products"
-                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-                  >
-                    Explore Shop
-                  </Link>
+      ) : (
+        <ul className="space-y-4">
+          {orders.map((order) => {
+            const formattedDate = new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+            const items = order.order_items ?? [];
+            const count = items.reduce((n, i) => n + (i.quantity || 0), 0);
+            const trackable = !['pending', 'cancelled', 'refunded'].includes(order.status);
+            return (
+              <li key={order.id} className="ui-card overflow-hidden">
+                {/* Header */}
+                <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-base font-extrabold tracking-wide" style={{ color: 'var(--fg)' }}>{orderReference(order.id)}</p>
+                    <p className="text-sm" style={{ color: 'var(--fg-muted)' }}>
+                      Placed {formattedDate} · {count} {count === 1 ? 'item' : 'items'}
+                    </p>
+                  </div>
+                  <StatusChip status={order.status} />
                 </div>
-              </ScrollReveal>
-            ) : (
-              orders.map((order) => {
-                const statusInfo = STATUS_CONFIG[order.status] || STATUS_CONFIG.pending;
-                const StatusIcon = statusInfo.icon;
-                const formattedDate = new Date(order.created_at).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                });
 
-                return (
-                  <ScrollReveal key={order.id} animation="fade-up">
-                    <div className="rounded-2xl overflow-hidden" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                      {/* Top Bar */}
-                      <div className="px-6 py-4 flex flex-wrap items-center justify-between gap-4" style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-                        <div className="flex flex-wrap items-center gap-4 text-xs" style={{ color: 'var(--fg-muted)' }}>
-                          <div>
-                            <span className="font-bold block uppercase text-[10px] tracking-wider">Order ID</span>
-                            <span className="font-mono text-sm font-bold" style={{ color: 'var(--fg)' }}>#{order.id.slice(0, 8)}</span>
-                          </div>
-                          <div>
-                            <span className="font-bold block uppercase text-[10px] tracking-wider">Date Placed</span>
-                            <span style={{ color: 'var(--fg)' }}>{formattedDate}</span>
-                          </div>
-                          <div>
-                            <span className="font-bold block uppercase text-[10px] tracking-wider">Total Amount</span>
-                            <span className="font-bold" style={{ color: 'var(--fg)' }}>₹{order.total}</span>
-                          </div>
+                {/* Items */}
+                <ul className="px-4 sm:px-6 py-2 space-y-3">
+                  {items.map((item) => {
+                    const cancelled = item.status === 'cancelled';
+                    const meta = [item.variant?.size && `Size ${item.variant.size}`, item.variant?.color, `Qty ${item.quantity}`].filter(Boolean).join(' · ');
+                    const name = item.product?.name ?? 'WAR Apparel';
+                    return (
+                      <li key={item.id} className="flex items-center gap-3 sm:gap-4">
+                        <div className="relative w-14 h-16 sm:w-16 sm:h-20 flex-shrink-0 overflow-hidden rounded-xl"
+                          style={{ background: 'var(--surface-2)', opacity: cancelled ? 0.5 : 1 }}>
+                          <ProductImage src={item.product?.images?.[0]?.url} alt={name} sizes="64px" />
                         </div>
-
-                        <span
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
-                          style={{ background: statusInfo.bg, color: statusInfo.text }}
-                        >
-                          <StatusIcon size={12} />
-                          {statusInfo.label}
-                        </span>
-                      </div>
-
-                      {/* Items */}
-                      <div className="p-6 space-y-4">
-                        {order.order_items?.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xs" style={{ background: 'var(--bg-elevated)' }}>
-                                <Package size={20} style={{ color: 'var(--fg-subtle)' }} />
-                              </div>
-                              <div>
-                                <p className="font-bold text-sm" style={{ color: 'var(--fg)' }}>{item.product?.name ?? 'WAR Apparel'}</p>
-                                <p className="text-xs" style={{ color: 'var(--fg-muted)' }}>
-                                  Qty: {item.quantity} {item.variant?.size ? `· Size: ${item.variant.size}` : ''} {item.variant?.color ? `· Color: ${item.variant.color}` : ''}
-                                </p>
-                              </div>
-                            </div>
-                            <span className="font-bold text-sm" style={{ color: 'var(--fg)' }}>₹{item.total_price || item.unit_price * item.quantity}</span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Footer Actions */}
-                      <div className="px-6 py-3 flex items-center justify-between text-xs" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-                        <span style={{ color: 'var(--fg-muted)' }}>
-                          Payment: <strong style={{ color: 'var(--fg)' }}>
-                            {(() => {
-                              let notesObj: any = {};
-                              if (typeof order.notes === 'string') {
-                                try { notesObj = JSON.parse(order.notes); } catch (e) {}
-                              } else if (typeof order.notes === 'object' && order.notes !== null) {
-                                notesObj = order.notes;
-                              }
-                              const gateway = notesObj.gateway || order.shipping_address?.gateway;
-                              const detail = notesObj.payment_method_detail || order.shipping_address?.payment_method_detail || order.payment_method || 'ONLINE';
-                              const wallet = notesObj.wallet || order.shipping_address?.wallet;
-                              if (gateway === 'Razorpay') {
-                                return `RAZORPAY (${detail.toUpperCase()}${wallet ? ` - ${wallet.toUpperCase()}` : ''})`;
-                              }
-                              return (order.payment_method || 'COD').toUpperCase();
-                            })()}
-                          </strong> ({order.payment_status})
-                        </span>
-                        <div className="flex items-center gap-3">
-                          {order.tracking_number && (
-                            <span className="font-semibold" style={{ color: 'var(--accent)' }}>
-                              Tracking: #{order.tracking_number}
-                            </span>
-                          )}
-                          <Link href={`/account/orders/${order.id}`} className="font-bold flex items-center gap-1 hover:underline" style={{ color: 'var(--fg)' }}>
-                            View Details <ExternalLink size={12} />
-                          </Link>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[15px] font-semibold leading-snug truncate"
+                            style={{ color: cancelled ? 'var(--fg-subtle)' : 'var(--fg)', textDecoration: cancelled ? 'line-through' : 'none' }}>
+                            {name}
+                          </p>
+                          <p className="text-sm mt-0.5" style={{ color: 'var(--fg-muted)' }}>{meta}</p>
+                          {cancelled && <span className="ui-chip ui-chip-bad mt-1">Cancelled</span>}
                         </div>
-                      </div>
-                    </div>
-                  </ScrollReveal>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-    </main>
+                        <span className="text-[15px] font-bold whitespace-nowrap" style={{ color: 'var(--fg)' }}>
+                          {formatPrice(item.total_price || item.unit_price * item.quantity)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {/* Footer */}
+                <div className="mt-3 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3 border-t"
+                  style={{ borderColor: 'var(--border)', background: 'var(--surface-2)' }}>
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <Meta label="Order total"><span className="text-base font-extrabold">{formatPrice(order.total)}</span></Meta>
+                    <Meta label="Payment">{paymentLabel(order)}</Meta>
+                  </div>
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    {trackable && (
+                      <Link href={`/track-order?order=${order.id}`} className="ui-btn-ghost flex-1 sm:flex-none !py-2.5 text-sm">
+                        <Truck size={15} /> Track
+                      </Link>
+                    )}
+                    <Link href={`/account/orders/${order.id}`} className="ui-btn flex-1 sm:flex-none !py-2.5 text-sm">
+                      View details <ArrowRight size={15} />
+                    </Link>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </AccountShell>
   );
 }

@@ -49,6 +49,27 @@ export default function AdminCollectionsPage() {
 
   const autoSlug = (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  /** While typing a slug: only lowercase letters, numbers and single hyphens. */
+  const typedSlug = (value: string) => value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-{2,}/g, '-');
+
+  const [uploading, setUploading] = useState(false);
+  const uploadCover = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const res = await fetch('/api/admin/uploads', { method: 'POST', body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      setForm((f) => ({ ...f, image_url: data.url }));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const openNew = () => {
     setEditId(null);
@@ -77,7 +98,7 @@ export default function AdminCollectionsPage() {
     try {
       const payload = {
         name: form.name.trim(),
-        slug: form.slug.trim(),
+        slug: autoSlug(form.slug),
         description: form.description.trim() || null,
         image_url: form.image_url.trim() || null,
         is_active: form.is_active,
@@ -107,7 +128,8 @@ export default function AdminCollectionsPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this collection? This cannot be undone.')) return;
     try {
-      await fetch(`/api/admin/collections/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/collections/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
       setCollections((prev) => prev.filter((c) => c.id !== id));
     } catch {
       alert('Failed to delete collection');
@@ -326,7 +348,7 @@ export default function AdminCollectionsPage() {
                 </span>
                 <input
                   value={form.slug}
-                  onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, slug: typedSlug(e.target.value) }))}
                   className="flex-1 px-3 py-3 text-sm outline-none"
                   style={{ background: 'var(--bg-subtle)', color: 'var(--fg)' }}
                 />
@@ -346,15 +368,23 @@ export default function AdminCollectionsPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2">Cover Image URL</label>
-              <input
-                value={form.image_url}
-                onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
-                type="url"
-                placeholder="https://…"
-                className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-                style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}
-              />
+              <label className="block text-sm font-medium mb-2">Cover Image</label>
+              {form.image_url ? (
+                <div className="flex items-center gap-3">
+                  <img src={form.image_url} alt="Collection cover" className="w-24 h-16 rounded-lg object-cover" style={{ border: '1px solid var(--border)' }} />
+                  <button type="button" onClick={() => setForm((f) => ({ ...f, image_url: '' }))}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold" style={{ background: 'var(--bg-subtle)', color: 'var(--fg-muted)' }}>
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                  style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' }}>
+                  {uploading ? 'Uploading…' : 'Upload image'}
+                  <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" hidden disabled={uploading}
+                    onChange={(e) => uploadCover(e.target.files?.[0])} />
+                </label>
+              )}
             </div>
 
             <div className="flex items-center gap-3">

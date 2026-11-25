@@ -38,6 +38,7 @@ export interface Database {
           expires_at?: string | null;
           verified?: boolean;
         };
+        Relationships: [];
       };
 
       profiles: {
@@ -72,6 +73,7 @@ export interface Database {
           is_verified?: boolean;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       collections: {
@@ -106,6 +108,7 @@ export interface Database {
           is_active?: boolean;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       addresses: {
@@ -148,6 +151,7 @@ export interface Database {
           country?: string;
           is_default?: boolean;
         };
+        Relationships: [];
       };
 
       orders: {
@@ -166,6 +170,8 @@ export interface Database {
           shipping_address: Json;
           tracking_number: string | null;
           notes: string | null;
+          razorpay_order_id: string | null;
+          razorpay_payment_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -184,6 +190,8 @@ export interface Database {
           shipping_address: Json;
           tracking_number?: string | null;
           notes?: string | null;
+          razorpay_order_id?: string | null;
+          razorpay_payment_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -192,8 +200,12 @@ export interface Database {
           payment_status?: 'pending' | 'paid' | 'failed' | 'refunded';
           tracking_number?: string | null;
           notes?: string | null;
+          payment_method?: string;
+          razorpay_payment_id?: string | null;
+          total?: number;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       order_items: {
@@ -205,6 +217,7 @@ export interface Database {
           quantity: number;
           unit_price: number;
           total_price: number;
+          status: 'active' | 'cancelled';
           created_at: string;
         };
         Insert: {
@@ -215,9 +228,47 @@ export interface Database {
           quantity: number;
           unit_price: number;
           total_price: number;
+          status?: 'active' | 'cancelled';
           created_at?: string;
         };
+        Update: {
+          status?: 'active' | 'cancelled';
+        };
+        Relationships: [];
+      };
+
+      store_settings: {
+        Row: {
+          id: number;
+          free_shipping_threshold: number;
+          shipping_fee: number;
+          cod_enabled: boolean;
+          auth_popup: Json;
+          updated_at: string;
+        };
+        Insert: {
+          id?: number;
+          free_shipping_threshold?: number;
+          shipping_fee?: number;
+          cod_enabled?: boolean;
+          auth_popup?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          free_shipping_threshold?: number;
+          shipping_fee?: number;
+          cod_enabled?: boolean;
+          auth_popup?: Json;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+
+      product_collections: {
+        Row: { product_id: string; collection_id: string };
+        Insert: { product_id: string; collection_id: string };
         Update: never;
+        Relationships: [];
       };
 
       wishlist: {
@@ -234,6 +285,7 @@ export interface Database {
           created_at?: string;
         };
         Update: never;
+        Relationships: [];
       };
 
       categories: {
@@ -262,6 +314,7 @@ export interface Database {
           parent_id?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       products: {
@@ -308,6 +361,7 @@ export interface Database {
           status?: 'draft' | 'active' | 'archived';
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       product_categories: {
@@ -323,6 +377,7 @@ export interface Database {
           product_id?: string;
           category_id?: string;
         };
+        Relationships: [];
       };
 
       size_options: {
@@ -342,6 +397,7 @@ export interface Database {
           name?: string;
           sort_order?: number;
         };
+        Relationships: [];
       };
 
       category_size_options: {
@@ -358,6 +414,7 @@ export interface Database {
         Update: {
           sort_order?: number;
         };
+        Relationships: [];
       };
 
       colors: {
@@ -377,6 +434,7 @@ export interface Database {
           name?: string;
           color_code?: string | null;
         };
+        Relationships: [];
       };
 
       product_variants: {
@@ -413,6 +471,7 @@ export interface Database {
           status?: 'active' | 'inactive';
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       product_media: {
@@ -446,6 +505,7 @@ export interface Database {
           alt_text?: string | null;
           sort_order?: number;
         };
+        Relationships: [];
       };
 
       inventory: {
@@ -470,6 +530,7 @@ export interface Database {
           reserved_quantity?: number;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       carts: {
@@ -491,6 +552,7 @@ export interface Database {
           status?: 'active' | 'converted' | 'abandoned';
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       cart_items: {
@@ -514,6 +576,7 @@ export interface Database {
           quantity?: number;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       coupons: {
@@ -575,6 +638,7 @@ export interface Database {
           valid_to?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
 
       coupon_usages: {
@@ -595,7 +659,17 @@ export interface Database {
         Update: {
           order_id?: string | null;
         };
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: {
+      increment_coupon_uses: { Args: { coupon_id: string }; Returns: undefined };
+      reserve_inventory: { Args: Record<string, unknown>; Returns: unknown };
+      decrement_inventory: { Args: { p_variant_id: string; p_qty: number }; Returns: boolean };
+      increment_inventory: { Args: { p_variant_id: string; p_qty: number }; Returns: undefined };
+    };
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }

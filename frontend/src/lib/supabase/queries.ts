@@ -5,19 +5,9 @@ async function getSupabaseClient() {
   return createClient();
 }
 
-export function getPublicStorageUrl(path?: string | null, fallbackId = ''): string {
-  if (!path || path.trim() === '') {
-    const placeholders = [
-      'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600',
-      'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=600',
-      'https://images.unsplash.com/photo-1503341455253-b2e723bb3dbb?w=600',
-      'https://images.unsplash.com/photo-1529374255404-311a2a4f1fd9?w=600',
-      'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600',
-    ];
-    let charCodeSum = 0;
-    for (let i = 0; i < fallbackId.length; i++) charCodeSum += fallbackId.charCodeAt(i);
-    return placeholders[charCodeSum % placeholders.length];
-  }
+/** Public URL for an uploaded file; empty string when nothing was uploaded (never a stock photo). */
+export function getPublicStorageUrl(path?: string | null, _fallbackId = ''): string {
+  if (!path || path.trim() === '') return '';
 
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
 
@@ -62,9 +52,8 @@ export function normalizeProduct(row: any): any {
       }));
   } else if (row.image_url) {
     images = [{ url: getPublicStorageUrl(row.image_url, row.id || row.slug), alt: row.name, type: 'image' }];
-  } else {
-    images = [{ url: getPublicStorageUrl(null, row.id || row.slug), alt: row.name, type: 'image' }];
   }
+  images = images.filter((img) => img.url);
 
   // Variants mapping & Price extraction
   const rawVariants = Array.isArray(row.product_variants)
@@ -93,9 +82,10 @@ export function normalizeProduct(row: any): any {
       maxCompareAtPrice = compareAt;
     }
 
-    const colorName = v.color?.name || v.color || 'Default';
-    const colorHex = v.color?.color_code || v.color_hex || '#000000';
-    if (!uniqueColorsMap.has(colorName)) {
+    // Colour is optional (e.g. printed tees) — no colour means no colour picker, not "Default".
+    const colorName = v.color?.name || (typeof v.color === 'string' ? v.color : '') || '';
+    const colorHex = v.color?.color_code || v.color_hex || '';
+    if (colorName && !uniqueColorsMap.has(colorName)) {
       uniqueColorsMap.set(colorName, { name: colorName, hex: colorHex, color_id: v.color_id });
     }
 
@@ -147,6 +137,10 @@ export function normalizeProduct(row: any): any {
     compare_at_price: comparePrice,
     discount_price: comparePrice ? sellingPrice : undefined,
     categories,
+    size_chart_id: row.size_chart_id ?? null,
+    collection_ids: Array.isArray(row.product_collections)
+      ? row.product_collections.map((pc: any) => pc.collection_id)
+      : [],
     category_id: primaryCategory?.id ?? undefined,
     category: primaryCategory,
     colors: Array.from(uniqueColorsMap.values()),
@@ -164,11 +158,39 @@ export function normalizeProduct(row: any): any {
 
 // ─── Products Queries ─────────────────────────────────────────────────────────
 
+const PRODUCT_SELECT = `
+  *,
+  product_categories(
+    category:categories(*)
+  ),
+  product_media(*),
+  product_variants(
+    *,
+    color:colors(*),
+    size_option:size_options(*),
+    inventory(*)
+  )`;
+const PRODUCT_SELECT_WITH_COLLECTIONS = `${PRODUCT_SELECT},
+  product_collections(collection_id)`;
+
+/**
+ * Runs a products query including collection membership; if the product_collections
+ * table does not exist yet (migration not run), retries without it so the shop keeps working.
+ */
+async function selectProducts(build: (select: string) => PromiseLike<{ data: any; error: any }>) {
+  const result = await build(PRODUCT_SELECT_WITH_COLLECTIONS);
+  if (result.error && String(result.error.message ?? '').includes('product_collections')) {
+    console.warn('product_collections not available yet — run the production readiness migration.');
+    return build(PRODUCT_SELECT);
+  }
+  return result;
+}
+
 export async function getProducts(options?: {
   category?: string;
   categoryId?: string;
+  collectionId?: string;
   gender?: string;
-  status?: 'active' | 'draft' | 'archived';
   fitType?: string;
   minPrice?: number;
   maxPrice?: number;
@@ -181,107 +203,51 @@ export async function getProducts(options?: {
   try {
     const supabase = await getSupabaseClient();
 
-    let query = supabase
-      .from('products')
-      .select(`
-        *,
-        product_categories(
-          category:categories(*)
-        ),
-        product_media(*),
-        product_variants(
-          *,
-          color:colors(*),
-          size_option:size_options(*),
-          inventory(*)
-        )
-      `)
-      .eq('status', options?.status ?? 'active');
-
-    if (options?.gender) {
-      query = query.eq('gender', options.gender);
-    }
-    if (options?.fitType) {
-      query = query.eq('fit', options.fitType);
-    }
-    if (options?.search) {
-      query = query.ilike('name', `%${options.search}%`);
-    }
-
-    if (options?.orderBy) {
-      query = query.order(options.orderBy, { ascending: options?.ascending ?? false });
-    } else {
-      query = query.order('created_at', { ascending: false });
-    }
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-    if (options?.offset) {
-      query = query.range(options.offset, options.offset + (options.limit ?? 20) - 1);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await selectProducts((select) => {
+      let query = (supabase as any).from('products').select(select).eq('status', 'active');
+      if (options?.gender) query = query.eq('gender', options.gender);
+      if (options?.fitType) query = query.eq('fit', options.fitType);
+      if (options?.search) query = query.ilike('name', `%${options.search}%`);
+      query = query.order(options?.orderBy ?? 'created_at', { ascending: options?.ascending ?? false });
+      if (options?.limit) query = query.limit(options.limit);
+      if (options?.offset) query = query.range(options.offset, options.offset + (options.limit ?? 20) - 1);
+      return query;
+    });
     if (error) throw error;
 
-    if (data && data.length > 0) {
-      let products = data.map(normalizeProduct);
-
-      if (options?.category) {
-        products = products.filter((p: any) =>
-          p.categories.some((c: any) => c.slug === options.category || c.name.toLowerCase() === options.category?.toLowerCase())
-        );
-      }
-      if (options?.categoryId) {
-        products = products.filter((p: any) =>
-          p.categories.some((c: any) => c.id === options.categoryId)
-        );
-      }
-      if (options?.minPrice !== undefined) {
-        products = products.filter((p: any) => p.price >= options.minPrice!);
-      }
-      if (options?.maxPrice !== undefined) {
-        products = products.filter((p: any) => p.price <= options.maxPrice!);
-      }
-
-      return products;
+    let products = (data ?? []).map(normalizeProduct);
+    if (options?.category) {
+      products = products.filter((p: any) =>
+        p.categories.some((c: any) => c.slug === options.category || c.name.toLowerCase() === options.category?.toLowerCase())
+      );
     }
+    if (options?.categoryId) {
+      products = products.filter((p: any) => p.categories.some((c: any) => c.id === options.categoryId));
+    }
+    if (options?.collectionId) {
+      products = products.filter((p: any) => p.collection_ids.includes(options.collectionId));
+    }
+    if (options?.minPrice !== undefined) products = products.filter((p: any) => p.price >= options.minPrice!);
+    if (options?.maxPrice !== undefined) products = products.filter((p: any) => p.price <= options.maxPrice!);
+    return products;
   } catch (err) {
     console.error('Supabase getProducts error:', err);
   }
-
   return [];
 }
 
+/** A single published product by slug (drafts are never shown to shoppers). */
 export async function getProductBySlug(slug: string) {
   try {
     const supabase = await getSupabaseClient();
-
-    const { data, error } = await (supabase as any)
-      .from('products')
-      .select(`
-        *,
-        product_categories(
-          category:categories(*)
-        ),
-        product_media(*),
-        product_variants(
-          *,
-          color:colors(*),
-          size_option:size_options(*),
-          inventory(*)
-        )
-      `)
-      .eq('slug', slug)
-      .maybeSingle();
-
+    const { data, error } = await selectProducts((select) =>
+      (supabase as any).from('products').select(select).eq('slug', slug).eq('status', 'active').maybeSingle()
+    );
     if (error) {
       console.error('getProductBySlug error:', error);
       return null;
     }
-    if (!data) return null;
-
-    return normalizeProduct(data);
+    return data ? normalizeProduct(data) : null;
   } catch (err) {
     console.error('Supabase getProductBySlug error:', err);
   }
@@ -292,8 +258,21 @@ export async function getFeaturedProducts(limit = 4) {
   return getProducts({ limit });
 }
 
+/** Products ranked by units actually sold. Empty when there are no sales yet. */
 export async function getBestSellers(limit = 4) {
-  return getProducts({ limit });
+  try {
+    const supabase = await getSupabaseClient();
+    const { data, error } = await (supabase as any).rpc('best_selling_product_ids', { p_limit: limit });
+    if (error || !data?.length) return [];
+    const ranking: string[] = data.map((row: any) => row.product_id);
+    const products = await getProducts();
+    return ranking
+      .map((id) => products.find((p: any) => p.id === id))
+      .filter(Boolean);
+  } catch (err) {
+    console.error('getBestSellers error:', err);
+    return [];
+  }
 }
 
 // ─── Categories Queries ───────────────────────────────────────────────────────
@@ -494,6 +473,7 @@ export async function fetchUserCartFromDb(userId: string): Promise<any[]> {
           *,
           color:colors(*),
           size_option:size_options(*),
+          inventory(quantity, reserved_quantity),
           product:products(
             *,
             product_categories(category:categories(*)),
@@ -515,9 +495,11 @@ export async function fetchUserCartFromDb(userId: string): Promise<any[]> {
       .map((item: any) => {
         const p = normalizeProduct(item.variant.product);
         const v = item.variant;
-        const colorName = v.color?.name || 'Default';
+        const colorName = v.color?.name || '';
         const colorHex = v.color?.color_code || '#000000';
         const sizeName = v.size_option?.name || 'Free Size';
+        const inv = Array.isArray(v.inventory) ? v.inventory[0] : v.inventory;
+        const stockLeft = inv ? Math.max(0, Number(inv.quantity || 0) - Number(inv.reserved_quantity || 0)) : 0;
 
         const variantObj = {
           variant_id: v.id,
@@ -529,7 +511,7 @@ export async function fetchUserCartFromDb(userId: string): Promise<any[]> {
           size: sizeName,
           price: Number(v.price ?? p.price),
           compare_at_price: v.compare_at_price ? Number(v.compare_at_price) : undefined,
-          stock_quantity: 50,
+          stock_quantity: stockLeft,
           status: v.status || 'active',
         };
 
@@ -594,54 +576,6 @@ export async function createOrder(
   if (itemsError) throw itemsError;
 
   return newOrder as Database['public']['Tables']['orders']['Row'];
-}
-
-// ─── Wishlist Queries ─────────────────────────────────────────────────────────
-
-export async function getWishlist(userId: string) {
-  try {
-    const supabase = await getSupabaseClient();
-    const { data, error } = await supabase
-      .from('wishlist')
-      .select(`
-        *,
-        product:products(
-          *,
-          product_categories(category:categories(*)),
-          product_media(*),
-          product_variants(*, color:colors(*), size_option:size_options(*), inventory(*))
-        )
-      `)
-      .eq('user_id', userId);
-    if (error) throw error;
-    return (data || []).map((w: any) => ({
-      wishlist_item_id: w.id,
-      product: normalizeProduct(w.product),
-      added_at: w.created_at,
-    }));
-  } catch (err) {
-    console.error('getWishlist error:', err);
-    return [];
-  }
-}
-
-export async function toggleWishlist(userId: string, productId: string) {
-  const supabase = await getSupabaseClient();
-
-  const { data: existing } = await supabase
-    .from('wishlist')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('product_id', productId)
-    .maybeSingle();
-
-  if (existing) {
-    await supabase.from('wishlist').delete().eq('id', (existing as { id: string }).id);
-    return false;
-  } else {
-    await (supabase as any).from('wishlist').insert({ user_id: userId, product_id: productId });
-    return true;
-  }
 }
 
 // ─── Admin Queries ────────────────────────────────────────────────────────────

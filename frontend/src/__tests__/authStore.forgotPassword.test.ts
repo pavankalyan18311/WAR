@@ -34,13 +34,31 @@ describe('Auth Store - Forgot Password & Password Reset Flow', () => {
     vi.restoreAllMocks();
   });
 
-  it('successfully requests password reset OTP', async () => {
-    mockResetPasswordForEmail.mockResolvedValue({ error: null });
+  const mockFetchOk = () =>
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), { status: 200 })
+    );
+
+  it('successfully requests password reset OTP via the server route', async () => {
+    const fetchSpy = mockFetchOk();
 
     await useAuthStore.getState().requestPasswordResetOtp('USER@EXAMPLE.COM  ');
 
-    expect(mockResetPasswordForEmail).toHaveBeenCalledWith('user@example.com');
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth/password-reset', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ action: 'send', email: 'user@example.com' }),
+    }));
     expect(useAuthStore.getState().loading).toBe(false);
+  });
+
+  it('surfaces the server error when the email is not registered', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: 'No registered account found' }), { status: 404 })
+    );
+
+    await expect(useAuthStore.getState().requestPasswordResetOtp('nobody@example.com'))
+      .rejects.toThrow('No registered account found');
+    expect(mockResetPasswordForEmail).not.toHaveBeenCalled();
   });
 
   it('rejects invalid or empty email when requesting password reset OTP', async () => {
@@ -52,19 +70,8 @@ describe('Auth Store - Forgot Password & Password Reset Flow', () => {
     );
   });
 
-  it('successfully verifies OTP and updates password', async () => {
-    const mockUser = { id: 'user-777', email: 'user@example.com' };
-    const mockSession = { access_token: 'recovery-token', user: mockUser };
-
-    mockVerifyOtp.mockResolvedValue({
-      data: { user: mockUser, session: mockSession },
-      error: null,
-    });
-
-    mockUpdateUser.mockResolvedValue({
-      data: { user: mockUser },
-      error: null,
-    });
+  it('verifies OTP and updates password via the server route', async () => {
+    const fetchSpy = mockFetchOk();
 
     await useAuthStore.getState().resetPasswordWithOtp({
       email: 'user@example.com',
@@ -73,18 +80,12 @@ describe('Auth Store - Forgot Password & Password Reset Flow', () => {
       confirmPassword: 'NewPassword123!',
     });
 
-    expect(mockVerifyOtp).toHaveBeenCalledWith({
-      email: 'user@example.com',
-      token: '654321',
-      type: 'recovery',
-    });
-
-    expect(mockUpdateUser).toHaveBeenCalledWith({
-      password: 'NewPassword123!',
-    });
-
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
-    expect(useAuthStore.getState().user).toEqual(mockUser);
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth/password-reset', expect.objectContaining({
+      body: JSON.stringify({ action: 'verify', email: 'user@example.com', token: '654321', password: 'NewPassword123!' }),
+    }));
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().loading).toBe(false);
   });
 
   it('rejects reset if passwords do not match or password is too short', async () => {

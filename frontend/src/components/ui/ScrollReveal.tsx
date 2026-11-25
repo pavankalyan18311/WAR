@@ -1,15 +1,15 @@
 'use client';
 
-import { useRef, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useRef, useEffect, useState, type CSSProperties, type ElementType, type ReactNode } from 'react';
 
 type AnimationType = 'fade-up' | 'fade-down' | 'fade-left' | 'fade-right' | 'zoom-in' | 'fade';
 
 const HIDDEN: Record<AnimationType, CSSProperties> = {
-  'fade-up':    { opacity: 0, transform: 'translateY(48px)' },
-  'fade-down':  { opacity: 0, transform: 'translateY(-48px)' },
-  'fade-left':  { opacity: 0, transform: 'translateX(48px)' },
-  'fade-right': { opacity: 0, transform: 'translateX(-48px)' },
-  'zoom-in':    { opacity: 0, transform: 'scale(0.88)' },
+  'fade-up':    { opacity: 0, transform: 'translateY(12px)' }, // subtle, editorial
+  'fade-down':  { opacity: 0, transform: 'translateY(-12px)' },
+  'fade-left':  { opacity: 0, transform: 'translateX(16px)' },
+  'fade-right': { opacity: 0, transform: 'translateX(-16px)' },
+  'zoom-in':    { opacity: 0, transform: 'scale(0.97)' },
   'fade':       { opacity: 0 },
 };
 
@@ -31,7 +31,7 @@ interface ScrollRevealProps {
   once?: boolean;       // default true
   className?: string;
   style?: CSSProperties;
-  as?: keyof JSX.IntrinsicElements;
+  as?: ElementType;
 }
 
 export default function ScrollReveal({
@@ -39,7 +39,7 @@ export default function ScrollReveal({
   animation = 'fade-up',
   delay = 0,
   duration = 700,
-  threshold = 0.15,
+  threshold = 0.12,
   once = true,
   className,
   style,
@@ -80,7 +80,6 @@ export default function ScrollReveal({
     ...style,
   };
 
-  // @ts-expect-error — dynamic tag
   return (
     <Tag ref={ref} className={className} style={transitionStyle}>
       {children}

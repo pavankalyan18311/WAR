@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/apiAuth';
+import { buildAnalytics, isCountedSale } from '@/lib/analytics';
+import { isAbandonedPayment } from '@/lib/admin/orders';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +17,9 @@ function getAdminClient() {
 
 /** GET /api/admin/dashboard — real stats for the admin dashboard */
 export async function GET() {
+  const auth = await requireAdmin();
+  if (auth.response) return auth.response;
+
   try {
     const supabase = getAdminClient();
 
@@ -23,40 +29,28 @@ export async function GET() {
       { data: profiles },
       { data: orderItems },
     ] = await Promise.all([
-      supabase.from('orders').select('id, total, status, created_at, user_id'),
+      supabase.from('orders').select('id, total, status, payment_method, payment_status, created_at, user_id, shipping_address'),
       supabase.from('products').select('id, status'),
       supabase.from('profiles').select('id'),
-      supabase.from('order_items').select('product_id, quantity, total_price'),
+      supabase.from('order_items').select('order_id, product_id, quantity, total_price, status'),
     ]);
 
-    const allOrders = orders ?? [];
-    const totalRevenue = allOrders.reduce((sum: number, o: any) => sum + (Number(o.total) || 0), 0);
-    const totalOrders = allOrders.length;
+    // Unpaid online attempts (customer closed Razorpay) are not orders — see Admin → Orders → Abandoned payments.
+    const allOrders = (orders ?? []).filter((o: any) => !isAbandonedPayment(o));
+    // Same rules as Admin → Analytics: cancelled, refunded and failed payments are not sales.
+    const analytics = buildAnalytics(allOrders);
+    const totalRevenue = analytics.totalRevenue;
+    const totalOrders = analytics.totalOrders;
+    const soldOrderIds = new Set(allOrders.filter(isCountedSale).map((o: any) => o.id));
     const totalProducts = (products ?? []).filter((p: any) => p.status === 'active').length;
     const totalCustomers = (profiles ?? []).length;
 
-    // Weekly revenue: last 7 days
-    const now = new Date();
-    const weekSlots: { day: string; label: string; revenue: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      weekSlots.push({
-        day: d.toISOString().split('T')[0],
-        label: d.toLocaleDateString('en-IN', { weekday: 'short' }),
-        revenue: 0,
-      });
-    }
-    for (const o of allOrders) {
-      const day = (o.created_at || '').split('T')[0];
-      const slot = weekSlots.find((s) => s.day === day);
-      if (slot) slot.revenue += Number(o.total) || 0;
-    }
-    const maxRev = Math.max(...weekSlots.map((s) => s.revenue), 1);
-    const weeklyRevenue = weekSlots.map((s) => ({
-      label: s.label,
-      value: s.revenue,
-      pct: Math.round((s.revenue / maxRev) * 100),
+    // Weekly revenue: last 7 days (India time)
+    const maxRev = Math.max(...analytics.last7Days.map((d) => d.revenue), 1);
+    const weeklyRevenue = analytics.last7Days.map((d) => ({
+      label: new Date(`${d.date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short' }),
+      value: d.revenue,
+      pct: Math.round((d.revenue / maxRev) * 100),
     }));
 
     // Order status breakdown
@@ -86,7 +80,7 @@ export async function GET() {
     // Top products from order_items
     const productStats: Record<string, { qty: number; revenue: number }> = {};
     for (const item of orderItems ?? []) {
-      if (!item.product_id) continue;
+      if (!item.product_id || item.status === 'cancelled' || !soldOrderIds.has(item.order_id)) continue;
       if (!productStats[item.product_id]) productStats[item.product_id] = { qty: 0, revenue: 0 };
       productStats[item.product_id].qty += Number(item.quantity) || 0;
       productStats[item.product_id].revenue += Number(item.total_price) || 0;
@@ -137,7 +131,7 @@ export async function GET() {
           : `${Math.floor(diffMin / 1440)}d ago`;
         return {
           id: `#${o.id.slice(0, 8).toUpperCase()}`,
-          customer: (addr as any).full_name || 'Customer',
+          customer: (addr as any).full_name || '',
           amount: `₹${Number(o.total || 0).toLocaleString()}`,
           status: statusName,
           time: timeAgo,

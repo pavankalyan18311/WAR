@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import RegisterPage from '@/app/auth/register/page';
+import VerifyEmailPage from '@/app/auth/verify-email-otp/page';
 import { useAuthStore } from '@/store/authStore';
 
 vi.mock('next/navigation', () => ({
@@ -16,16 +17,9 @@ describe('Register Page - Email OTP only onboarding', () => {
     useAuthStore.setState({
       user: null,
       isAuthenticated: false,
-      sessionToken: null,
-      sessionExpiresAt: null,
+      session: null,
       flowStage: 'register',
-      mobileOtpSent: false,
-      emailOtpSent: false,
-      mobileWidgetOpen: false,
-      mobileWidgetError: '',
-      currentMobile: '',
       pendingRegistration: null,
-      passwordResetEmail: '',
     });
   });
 
@@ -36,28 +30,29 @@ describe('Register Page - Email OTP only onboarding', () => {
     expect(screen.queryByText(/mobile otp for registration/i)).not.toBeInTheDocument();
   });
 
-  it('keeps email-otp registration UI even if store flowStage is set to mobile', async () => {
+  it('shows the email registration form without any mobile number field', () => {
     render(<RegisterPage />);
 
-    await act(async () => {
-      useAuthStore.setState({ flowStage: 'mobile' });
-    });
-
     expect(screen.getByText(/first name/i)).toBeInTheDocument();
-    expect(screen.queryByText(/^send otp$/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('auth-email')).toBeInTheDocument();
     expect(screen.queryByLabelText(/mobile number/i)).not.toBeInTheDocument();
   });
 
-  it('shows a resend otp action when the registration otp stage is active', async () => {
+  it('verify page offers a resend OTP action and shows the WAR brand', async () => {
     await act(async () => {
       useAuthStore.setState({
         flowStage: 'email_otp',
-        pendingRegistration: { firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com', dob: '', password: 'password123' },
+        pendingRegistration: {
+          firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com',
+          dob: '', password: 'password123', confirmPassword: 'password123',
+        },
       });
     });
 
-    render(<RegisterPage />);
+    render(<VerifyEmailPage />);
 
     expect(screen.getByRole('button', { name: /resend otp/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'WAR' })).toBeInTheDocument();
+    expect(screen.queryByText(/threadx/i)).not.toBeInTheDocument();
   });
 });

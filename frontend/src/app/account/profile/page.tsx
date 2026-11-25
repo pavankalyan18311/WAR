@@ -1,20 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { User, MapPin, Package, Heart, LogOut, Plus, Pencil, Trash2, CheckCircle, X, Home, Briefcase, MoreHorizontal, LocateFixed, AlertCircle, Copy, Tag, Check } from 'lucide-react';
+import { Plus, Pencil, CheckCircle, X, Home, Briefcase, MoreHorizontal, AlertCircle } from 'lucide-react';
 import type { Address } from '@/types';
 import ScrollReveal from '@/components/ui/ScrollReveal';
 import { useAuthStore } from '@/store/authStore';
-import { createClient } from '@/lib/supabase/client';
+import { getUserDisplayInfo } from '@/lib/userDisplay';
+import { fetchPincodeInfo, type LocatedAddress } from '@/lib/geoClient';
+import UseLocationButton from '@/components/address/UseLocationButton';
+import { AccountSection, AccountShell } from '@/components/account/AccountShell';
+import RewardsPanel from '@/components/account/RewardsPanel';
 
 type AddressWithLabel = Address & { label: string };
-
-const COUPONS = [
-  { code: 'WAR10', title: '10% OFF Oversized Tees', desc: 'Valid on all Oversized T-Shirts. Min cart ₹999.', expires: 'Valid till 31 Dec' },
-  { code: 'WELCOME20', title: '20% OFF First Order', desc: 'Exclusive new member discount on orders above ₹1499.', expires: 'Valid till 31 Dec' },
-  { code: 'FREESHIP', title: 'Free Express Shipping', desc: 'Get zero shipping fee on orders above ₹799.', expires: 'Auto-applies' },
-];
+type FormState = Partial<AddressWithLabel> & { label: string };
 
 const LABEL_ICONS: Record<string, React.ElementType> = {
   Home: Home,
@@ -30,42 +28,20 @@ const INDIA_STATES = [
   'Uttarakhand', 'West Bengal',
 ];
 
-type AddressWithLabel = Address & { label: string };
-type FormState = Partial<AddressWithLabel> & { label: string };
-
 const EMPTY_FORM: FormState = {
   label: 'Home', full_name: '', phone: '', address_line_1: '', address_line_2: '',
   city: '', state: 'Karnataka', pincode: '', country: 'India',
 };
 
-const NAV_LINKS = [
-  { href: '/account/profile', label: 'Profile & Addresses', icon: User, active: true },
-  { href: '/account/orders', label: 'My Orders', icon: Package },
-  { href: '/wishlist', label: 'Wishlist', icon: Heart },
-];
-
-type ReverseGeocodeResponse = {
-  address?: {
-    city?: string;
-    town?: string;
-    village?: string;
-    state?: string;
-    postcode?: string;
-    road?: string;
-    suburb?: string;
-  };
-};
 
 export default function AccountProfilePage() {
   const { user, isAuthenticated, logout, updateProfile } = useAuthStore();
   const [addresses, setAddresses] = useState<AddressWithLabel[]>([]);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
-  const [rewardPoints, setRewardPoints] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saved, setSaved] = useState(false);
-  const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [locationSuccess, setLocationSuccess] = useState('');
 
@@ -80,14 +56,6 @@ export default function AccountProfilePage() {
   const [profileUpdating, setProfileUpdating] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [profileSuccess, setProfileSuccess] = useState(false);
-  const [copiedCoupon, setCopiedCoupon] = useState<string | null>(null);
-
-  const handleCopyCoupon = (code: string) => {
-    navigator.clipboard.writeText(code);
-    setCopiedCoupon(code);
-    setTimeout(() => setCopiedCoupon(null), 2000);
-  };
-
   // Fetch live addresses & rewards from Supabase
   useEffect(() => {
     async function loadUserData() {
@@ -95,11 +63,9 @@ export default function AccountProfilePage() {
         setLoadingAddresses(false);
         return;
       }
-      const supabase = createClient();
-
       // Load Addresses via /api/addresses
       try {
-        const response = await fetch(`/api/addresses?user_id=${user.id}`);
+        const response = await fetch('/api/addresses');
         if (response.ok) {
           const resData = await response.json();
           if (resData.addresses && Array.isArray(resData.addresses)) {
@@ -125,22 +91,6 @@ export default function AccountProfilePage() {
         setLoadingAddresses(false);
       }
 
-      // Calculate reward points from user orders (5 points per ₹100 spent)
-      try {
-        const { data: orderData } = await supabase
-          .from('orders')
-          .select('total')
-          .eq('user_id', user.id);
-
-        if (orderData && orderData.length > 0) {
-          const totalSpent = orderData.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0);
-          setRewardPoints(Math.floor((totalSpent / 100) * 5));
-        } else {
-          setRewardPoints(0);
-        }
-      } catch (e) {
-        console.error('Failed to calculate reward points', e);
-      }
     }
 
     loadUserData();
@@ -207,7 +157,6 @@ export default function AccountProfilePage() {
     setEditing(null);
     setLocationError('');
     setLocationSuccess('');
-    setLocationLoading(false);
   };
 
   const setField = (key: keyof FormState, value: string) => {
@@ -217,22 +166,11 @@ export default function AccountProfilePage() {
     if (key === 'pincode') {
       const cleanPin = value.replace(/\D/g, '').slice(0, 6);
       if (cleanPin.length === 6) {
-        fetch(`https://api.postalpincode.in/pincode/${cleanPin}`)
-          .then((res) => res.json())
-          .then((data) => {
-            if (data && data[0]?.Status === 'Success' && data[0]?.PostOffice?.length > 0) {
-              const po = data[0].PostOffice[0];
-              const city = po.District || po.Division || po.Name || '';
-              const state = po.State || '';
-              setForm((f) => ({
-                ...f,
-                city: city || f.city,
-                state: state || f.state,
-              }));
-              setLocationSuccess(`Auto-filled city (${city}) & state (${state}) for pincode ${cleanPin}`);
-            }
-          })
-          .catch(() => {});
+        fetchPincodeInfo(cleanPin).then((info) => {
+          if (!info) return;
+          setForm((f) => ({ ...f, city: info.city || f.city, state: info.state || f.state }));
+          setLocationSuccess(`Auto-filled city (${info.city}) & state (${info.state}) for pincode ${cleanPin}`);
+        });
       }
     }
   };
@@ -249,21 +187,22 @@ export default function AccountProfilePage() {
     }
 
     try {
+      const existing = editing ? addresses.find((a) => a.address_id === editing) : undefined;
       const payload = {
-        user_id: user.id,
+        id: editing || undefined,
         full_name: form.full_name,
         phone: form.phone,
         address_line_1: form.address_line_1,
         address_line_2: form.address_line_2 || null,
         city: form.city,
-        state: form.state || 'Karnataka',
+        state: form.state,
         pincode: form.pincode,
         country: form.country ?? 'India',
-        is_default: addresses.length === 0,
+        is_default: existing ? existing.is_default : addresses.length === 0,
       };
 
       const res = await fetch('/api/addresses', {
-        method: 'POST',
+        method: editing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
@@ -302,430 +241,227 @@ export default function AccountProfilePage() {
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`/api/addresses?id=${id}&user_id=${user?.id || ''}`, { method: 'DELETE' });
-    } catch (e) {
+      const res = await fetch(`/api/addresses?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete address.');
+      setAddresses((prev) => prev.filter((a) => a.address_id !== id));
+    } catch (e: any) {
       console.error('Failed to delete address', e);
+      setLocationError(e.message || 'Failed to delete address.');
     }
-    setAddresses((prev) => prev.filter((a) => a.address_id !== id));
   };
 
   const setDefault = async (id: string) => {
-    if (!user?.id) return;
+    const target = addresses.find((a) => a.address_id === id);
+    if (!user?.id || !target) return;
     try {
-      await fetch('/api/addresses', {
-        method: 'POST',
+      const res = await fetch('/api/addresses', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: user.id,
-          is_default: true,
-          ...addresses.find((a) => a.address_id === id),
-        }),
+        body: JSON.stringify({ ...target, id, is_default: true }),
       });
-    } catch (e) {
+      if (!res.ok) throw new Error('Failed to update default address.');
+      setAddresses((prev) => prev.map((a) => ({ ...a, is_default: a.address_id === id })));
+    } catch (e: any) {
       console.error('Failed to update default address', e);
+      setLocationError(e.message || 'Failed to update default address.');
     }
-    setAddresses((prev) => prev.map((a) => ({ ...a, is_default: a.address_id === id })));
   };
 
-  const reverseGeocode = async (lat: number, lon: number): Promise<ReverseGeocodeResponse> => {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`;
-    const res = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-      },
-    });
-    if (!res.ok) {
-      throw new Error('Unable to fetch location details.');
-    }
-    return res.json();
-  };
-
-  const handleUseCurrentLocation = async () => {
-    if (!navigator.geolocation) {
-      setLocationError('Geolocation is not supported in this browser.');
-      return;
-    }
-
+  const applyDetectedAddress = (a: LocatedAddress) => {
     setLocationError('');
-    setLocationSuccess('');
-    setLocationLoading(true);
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const { latitude, longitude } = position.coords;
-          const data = await reverseGeocode(latitude, longitude);
-          const addr = data.address;
-          const city = addr?.city || addr?.town || addr?.village || '';
-          const state = addr?.state || '';
-          const pincode = (addr?.postcode || '').replace(/\D/g, '').slice(0, 6);
-          const lineHint = [addr?.road, addr?.suburb].filter(Boolean).join(', ');
-
-          setForm((prev) => ({
-            ...prev,
-            city: city || prev.city,
-            state: state || prev.state,
-            pincode: pincode || prev.pincode,
-            address_line_2: !prev.address_line_2 && lineHint ? lineHint : prev.address_line_2,
-          }));
-
-          if (city || state || pincode) {
-            setLocationSuccess('Location detected. City, state, and pincode autofilled.');
-          } else {
-            setLocationError('Location found, but could not auto-fill all fields.');
-          }
-        } catch {
-          setLocationError('Could not reverse geocode your location. Please enter details manually.');
-        } finally {
-          setLocationLoading(false);
-        }
-      },
-      (error) => {
-        if (error.code === error.PERMISSION_DENIED) {
-          setLocationError('Location permission denied. Enable it and try again.');
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          setLocationError('Location unavailable. Try again in a better network area.');
-        } else if (error.code === error.TIMEOUT) {
-          setLocationError('Location request timed out. Please retry.');
-        } else {
-          setLocationError('Unable to access your location right now.');
-        }
-        setLocationLoading(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-      }
-    );
+    setForm((prev) => ({
+      ...prev,
+      address_line_1: prev.address_line_1 || a.line1,
+      address_line_2: prev.address_line_2 || a.area,
+      city: a.city || prev.city,
+      state: INDIA_STATES.includes(a.state) ? a.state : prev.state,
+      pincode: a.pincode || prev.pincode,
+    }));
+    setLocationSuccess('Location found — please check the house/flat number before saving.');
   };
 
-  const displayName = user?.name || 'Guest User';
-  const displayEmail = user?.email || 'guest@war.in';
-  const displayPhone = user?.phone ? `+91 ${user.phone}` : 'Not added';
-  const displayDob = user?.dob || 'Not added';
+  const info = user ? getUserDisplayInfo(user) : null;
+  const displayName = info?.name ?? '';
+  const displayEmail = info?.email ?? '';
+  const displayPhone = info?.phone ? `+91 ${info.phone}` : 'Not added';
+  const displayDob = info?.dob || 'Not added';
   const joined = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
     : 'This Session';
 
+  const firstName = (user?.user_metadata?.first_name || displayName.split(' ')[0] || '').trim();
+  const modalPanel = 'relative w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 sm:p-7 border rounded-t-3xl sm:rounded-3xl shadow-2xl';
+  const modalStyle = { background: 'var(--surface)', borderColor: 'var(--border)' };
+  const labelCls = 'block text-sm font-semibold mb-1.5';
+
   return (
-    <main className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10">
-          <p className="text-xs font-bold tracking-[0.3em] uppercase mb-1" style={{ color: 'var(--accent)' }}>Account</p>
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-black"
-              style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-              {(user?.first_name?.[0] || user?.name?.[0] || 'U').toUpperCase()}
-            </div>
-            <div>
-              <h1 className="text-xl font-black" style={{ color: 'var(--fg)' }}>{displayName}</h1>
-              <p className="text-sm" style={{ color: 'var(--fg-muted)' }}>{displayEmail}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Navigation Bar */}
-      <div className="md:hidden border-b overflow-x-auto no-scrollbar" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-        <div className="flex px-5 py-2.5 gap-2 min-w-max">
-          {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
-            <Link key={href} href={href}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all"
-              style={{
-                background: active ? 'var(--primary)' : 'var(--bg-elevated)',
-                color: active ? 'var(--primary-fg)' : 'var(--fg-muted)',
-                border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
-              }}>
-              <Icon size={14} />
-              {label}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      <div className="max-w-5xl mx-auto px-5 sm:px-8 py-10">
-        <div className="flex gap-8">
-          {/* Sidebar */}
-          <aside className="hidden md:block w-48 flex-shrink-0">
-            <nav className="space-y-1">
-              {NAV_LINKS.map(({ href, label, icon: Icon, active }) => (
-                <Link key={href} href={href}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all"
-                  style={{
-                    background: active ? 'var(--bg-elevated)' : 'transparent',
-                    color: active ? 'var(--fg)' : 'var(--fg-muted)',
-                    border: active ? '1px solid var(--border)' : '1px solid transparent',
-                  }}>
-                  <Icon size={15} />
-                  {label}
-                </Link>
-              ))}
-              <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-70"
-                onClick={async () => {
-                  await logout();
-                }}
-                style={{ color: 'var(--danger)' }}>
-                <LogOut size={15} />
-                Sign Out
+    <AccountShell
+      active="profile"
+      eyebrow="Your account"
+      title={firstName ? <>Hello, <span style={{ color: 'var(--brand)' }}>{firstName}.</span></> : 'Your account'}
+      subtitle={displayEmail || undefined}
+      onLogout={async () => { await logout(); }}
+    >
+      <div className="space-y-5">
+        {/* 01 — Profile */}
+        <ScrollReveal animation="fade-up">
+          <AccountSection index="01" title="Personal details"
+            action={
+              <button onClick={openProfileModal} className="ui-btn-ghost !py-2 !px-4 text-sm">
+                <Pencil size={14} /> Edit
               </button>
-            </nav>
-          </aside>
-
-          {/* Main content */}
-          <div className="flex-1 min-w-0 space-y-8">
-            {/* Profile card */}
-            <ScrollReveal animation="fade-up">
-              <div className="rounded-2xl p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="font-black text-base" style={{ color: 'var(--fg)' }}>Personal Information</h2>
-                  <button onClick={openProfileModal} className="text-xs font-semibold hover:opacity-70 flex items-center gap-1"
-                    style={{ color: 'var(--accent)' }}>
-                    <Pencil size={12} /> Edit
-                  </button>
+            }>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {[
+                { label: 'First Name', value: user?.user_metadata?.first_name || displayName.split(' ')[0] || 'Not added' },
+                { label: 'Last Name', value: user?.user_metadata?.last_name || displayName.split(' ').slice(1).join(' ') || 'Not added' },
+                { label: 'Mobile Number', value: displayPhone },
+                { label: 'Email Address', value: displayEmail },
+                { label: 'Date of Birth', value: displayDob },
+                { label: 'Member Since', value: joined },
+              ].map(({ label, value }) => (
+                <div key={label} className="ui-card-soft px-4 py-3">
+                  <dt className="text-xs font-medium mb-0.5" style={{ color: 'var(--fg-muted)' }}>{label}</dt>
+                  <dd className="text-[15px] font-semibold break-words" style={{ color: value === 'Not added' ? 'var(--fg-subtle)' : 'var(--fg)' }}>{value}</dd>
                 </div>
-                <div className="grid sm:grid-cols-2 gap-4 text-sm">
-                  {[
-                    { label: 'First Name', value: user?.user_metadata?.first_name || displayName.split(' ')[0] || 'Not added' },
-                    { label: 'Last Name', value: user?.user_metadata?.last_name || displayName.split(' ').slice(1).join(' ') || 'Not added' },
-                    { label: 'Mobile Number', value: displayPhone },
-                    { label: 'Email Address', value: displayEmail },
-                    { label: 'Date of Birth', value: displayDob },
-                    { label: 'Member Since', value: joined },
-                  ].map(({ label, value }) => (
-                    <div key={label}>
-                      <p className="text-[10px] font-black uppercase tracking-widest mb-0.5" style={{ color: 'var(--fg-muted)' }}>{label}</p>
-                      <p className="font-semibold" style={{ color: 'var(--fg)' }}>{value}</p>
-                    </div>
-                  ))}
-                </div>
+              ))}
+            </dl>
 
+            {!isAuthenticated && (
+              <p className="mt-5 text-sm rounded-xl px-4 py-3" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                You are viewing guest mode data. Complete OTP login to unlock your real account details.
+              </p>
+            )}
+          </AccountSection>
+        </ScrollReveal>
 
+        {/* 02 — Addresses */}
+        <ScrollReveal animation="fade-up" delay={80}>
+          <AccountSection id="addresses" index="02" title="Saved addresses"
+            action={
+              <button onClick={openAdd} className="ui-btn !py-2 !px-4 text-sm">
+                <Plus size={15} /> Add new
+              </button>
+            }>
+            {locationError && !showForm && (
+              <p role="alert" className="mb-5 text-sm rounded-xl px-4 py-3" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>{locationError}</p>
+            )}
 
-                {!isAuthenticated && (
-                  <p className="mt-4 text-xs" style={{ color: 'var(--warning)' }}>
-                    You are viewing guest mode data. Complete OTP login to unlock your real account details.
-                  </p>
-                )}
+            {loadingAddresses ? (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[0, 1].map((i) => <div key={i} className="h-48 skeleton rounded-2xl" />)}
               </div>
-            </ScrollReveal>
-
-            {/* Addresses */}
-            <ScrollReveal animation="fade-up" delay={80}>
-              <div id="addresses">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="font-black text-base" style={{ color: 'var(--fg)' }}>Saved Addresses</h2>
-                  <button onClick={openAdd}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all hover:opacity-90"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                    <Plus size={13} /> Add New
-                  </button>
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-4">
-                  {addresses.map((addr) => {
-                    const Icon = LABEL_ICONS[addr.label] ?? MoreHorizontal;
-                    return (
-                      <div key={addr.address_id} className="relative rounded-2xl p-4"
-                        style={{
-                          background: 'var(--bg-card)',
-                          border: `1.5px solid ${addr.is_default ? 'var(--primary)' : 'var(--border)'}`,
-                        }}>
-                        {addr.is_default && (
-                          <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full"
-                            style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                            Default
-                          </span>
-                        )}
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                            style={{ background: 'var(--bg-elevated)' }}>
-                            <Icon size={14} style={{ color: 'var(--accent)' }} />
-                          </div>
-                          <span className="text-sm font-bold" style={{ color: 'var(--fg)' }}>{addr.label}</span>
-                        </div>
-                        <div className="text-sm space-y-0.5" style={{ color: 'var(--fg-muted)' }}>
-                          <p className="font-semibold" style={{ color: 'var(--fg)' }}>{addr.full_name}</p>
-                          <p>{addr.phone}</p>
-                          <p>{addr.address_line_1}</p>
-                          {addr.address_line_2 && <p>{addr.address_line_2}</p>}
-                          <p>{addr.city}, {addr.state} – {addr.pincode}</p>
-                        </div>
-                        <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-                          <button onClick={() => openEdit(addr)}
-                            className="flex items-center gap-1 text-xs font-semibold hover:opacity-70"
-                            style={{ color: 'var(--fg-muted)' }}>
-                            <Pencil size={11} /> Edit
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {addresses.map((addr) => {
+                  const LIcon = LABEL_ICONS[addr.label] ?? MoreHorizontal;
+                  return (
+                  <article key={addr.address_id} className="relative rounded-2xl border-[1.5px] p-5 flex flex-col"
+                    style={{ borderColor: addr.is_default ? 'var(--brand)' : 'var(--border)', background: 'var(--surface)' }}>
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <span className="ui-chip" style={{ background: 'var(--surface-2)', color: 'var(--fg)' }}>
+                        <LIcon size={13} /> {addr.label}
+                      </span>
+                      {addr.is_default && (
+                        <span className="ui-chip ui-chip-brand">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-base font-bold leading-snug" style={{ color: 'var(--fg)' }}>{addr.full_name}</p>
+                    <div className="text-sm mt-1.5 leading-relaxed flex-1" style={{ color: 'var(--fg-muted)' }}>
+                      <p>{addr.address_line_1}</p>
+                      {addr.address_line_2 && <p>{addr.address_line_2}</p>}
+                      <p>{addr.city}, {addr.state} — {addr.pincode}</p>
+                      <p className="mt-2 font-medium" style={{ color: 'var(--fg)' }}>{addr.phone}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 pt-3.5 border-t text-sm font-semibold"
+                      style={{ borderColor: 'var(--border)' }}>
+                      <button onClick={() => openEdit(addr)} className="hover:underline" style={{ color: 'var(--brand)' }}>Edit</button>
+                      {!addr.is_default && (
+                        <>
+                          <button onClick={() => setDefault(addr.address_id!)} className="hover:text-[var(--fg)]" style={{ color: 'var(--fg-muted)' }}>
+                            Set default
                           </button>
-                          {!addr.is_default && (
-                            <>
-                              <span style={{ color: 'var(--border)' }}>·</span>
-                              <button onClick={() => setDefault(addr.address_id!)}
-                                className="flex items-center gap-1 text-xs font-semibold hover:opacity-70"
-                                style={{ color: 'var(--accent)' }}>
-                                <CheckCircle size={11} /> Set Default
-                              </button>
-                              <span style={{ color: 'var(--border)' }}>·</span>
-                              <button onClick={() => handleDelete(addr.address_id!)}
-                                className="flex items-center gap-1 text-xs font-semibold hover:opacity-70"
-                                style={{ color: 'var(--danger)' }}>
-                                <Trash2 size={11} /> Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Add address card */}
-                  <button onClick={openAdd}
-                    className="rounded-2xl p-4 flex flex-col items-center justify-center gap-2 min-h-[160px] transition-all hover:opacity-70"
-                    style={{ border: '1.5px dashed var(--border)', background: 'transparent' }}>
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{ background: 'var(--bg-elevated)' }}>
-                      <Plus size={18} style={{ color: 'var(--fg-muted)' }} />
+                          <button onClick={() => handleDelete(addr.address_id!)} className="hover:text-[var(--bad)]" style={{ color: 'var(--fg-muted)' }}>
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </div>
-                    <p className="text-sm font-semibold" style={{ color: 'var(--fg-muted)' }}>Add New Address</p>
-                  </button>
-                </div>
-              </div>
-            </ScrollReveal>
+                  </article>
+                  );
+                })}
 
-            <ScrollReveal animation="fade-up" delay={120}>
-              <div id="rewards" className="rounded-2xl p-6" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <h2 className="font-black text-base" style={{ color: 'var(--fg)' }}>Rewards & Coupons</h2>
-                <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>
-                  Earn 5 points for every Rs.100 spent. Exclusive member offers will appear here.
-                </p>
-                <div className="mt-4 grid sm:grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                    <p className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Reward Points</p>
-                    <p className="text-2xl font-black mt-1" style={{ color: 'var(--accent)' }}>{rewardPoints}</p>
-                    <p className="text-[11px] mt-1" style={{ color: 'var(--fg-muted)' }}>Earn 5 points for every ₹100 spent</p>
-                  </div>
-                  <div className="rounded-xl p-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                    <p className="text-xs font-bold tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Available Coupons</p>
-                    <p className="text-2xl font-black mt-1" style={{ color: 'var(--fg)' }}>{COUPONS.length}</p>
-                    <p className="text-[11px] mt-1" style={{ color: 'var(--fg-muted)' }}>Active discounts for your account</p>
-                  </div>
-                </div>
-
-                <div className="mt-6 space-y-3">
-                  <p className="text-xs font-black tracking-widest uppercase" style={{ color: 'var(--fg-muted)' }}>Active Offers & Promo Codes</p>
-                  <div className="grid gap-3">
-                    {COUPONS.map((coupon) => (
-                      <div key={coupon.code}
-                        className="rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 transition-all"
-                        style={{ background: 'var(--bg-elevated)', border: '1px dashed var(--border)' }}>
-                        <div className="flex items-start gap-3">
-                          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ background: 'rgba(234, 179, 8, 0.12)', color: '#eab308' }}>
-                            <Tag size={16} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-sm" style={{ color: 'var(--fg)' }}>{coupon.code}</span>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}>{coupon.expires}</span>
-                            </div>
-                            <p className="font-semibold text-xs mt-0.5" style={{ color: 'var(--fg)' }}>{coupon.title}</p>
-                            <p className="text-[11px]" style={{ color: 'var(--fg-muted)' }}>{coupon.desc}</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleCopyCoupon(coupon.code)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 hover:opacity-90"
-                          style={{
-                            background: copiedCoupon === coupon.code ? '#22c55e' : 'var(--primary)',
-                            color: 'var(--primary-fg)',
-                          }}
-                        >
-                          {copiedCoupon === coupon.code ? (
-                            <>
-                              <Check size={12} /> Copied!
-                            </>
-                          ) : (
-                            <>
-                              <Copy size={12} /> Copy Code
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <button onClick={openAdd}
+                  className="rounded-2xl border-2 border-dashed p-5 min-h-[180px] flex flex-col items-center justify-center gap-3 transition-colors hover:border-[var(--brand)]"
+                  style={{ borderColor: 'var(--border-strong)' }}>
+                  <span className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+                    <Plus size={20} />
+                  </span>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--fg)' }}>Add new address</span>
+                </button>
               </div>
-            </ScrollReveal>
-          </div>
-        </div>
+            )}
+          </AccountSection>
+        </ScrollReveal>
+
+        {/* 03 — Reward points */}
+        <ScrollReveal animation="fade-up" delay={120}>
+          <AccountSection id="rewards" index="03" title="Reward points">
+            <RewardsPanel />
+          </AccountSection>
+        </ScrollReveal>
       </div>
 
       {/* Address Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
-            onClick={closeForm} />
-          <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl p-6"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-black text-base" style={{ color: 'var(--fg)' }}>
-                {editing ? 'Edit Address' : 'Add New Address'}
-              </h3>
-              <button onClick={closeForm} style={{ color: 'var(--fg-muted)' }}><X size={18} /></button>
+        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0" style={{ background: 'rgba(22,20,18,0.5)' }} onClick={closeForm} />
+          <div role="dialog" aria-modal="true" aria-label={editing ? 'Edit address' : 'Add new address'} className={modalPanel} style={modalStyle}>
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <p className="text-sm font-semibold mb-1" style={{ color: 'var(--brand)' }}>Address book</p>
+                <h3 className="ui-heading text-2xl leading-tight" style={{ color: 'var(--fg)' }}>{editing ? 'Edit Address' : 'Add New Address'}</h3>
+              </div>
+              <button onClick={closeForm} aria-label="Close" style={{ color: 'var(--fg-muted)' }}><X size={20} /></button>
             </div>
 
             {saved ? (
-              <div className="flex flex-col items-center py-10">
-                <CheckCircle size={40} style={{ color: '#22c55e' }} className="mb-3" />
-                <p className="font-bold text-base" style={{ color: 'var(--fg)' }}>Address saved!</p>
+              <div className="flex flex-col items-center py-12">
+                <CheckCircle size={36} style={{ color: 'var(--ok)' }} className="mb-3" />
+                <p className="ui-heading text-xl" style={{ color: 'var(--fg)' }}>Address saved!</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="rounded-xl p-3.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--fg)' }}>Current Location</p>
-                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--fg-muted)' }}>
-                        Auto-fill city, state, and pincode from your device location.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleUseCurrentLocation}
-                      disabled={locationLoading}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold disabled:opacity-60"
-                      style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-                    >
-                      <LocateFixed size={13} className={locationLoading ? 'animate-spin' : ''} />
-                      {locationLoading ? 'Detecting...' : 'Use Current Location'}
-                    </button>
-                  </div>
-                  {locationSuccess && (
-                    <p className="text-[11px] mt-2 font-medium" style={{ color: 'var(--success)' }}>
-                      {locationSuccess}
-                    </p>
-                  )}
-                  {locationError && (
-                    <p className="text-[11px] mt-2 font-medium flex items-center gap-1.5" style={{ color: 'var(--danger)' }}>
-                      <AlertCircle size={12} /> {locationError}
-                    </p>
-                  )}
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-sm max-w-[16rem]" style={{ color: 'var(--fg-muted)' }}>
+                    Auto-fill city, state, and pincode from your device location.
+                  </p>
+                  <UseLocationButton onDetected={applyDetectedAddress} fallbackFieldId="account-address-line1" />
                 </div>
+                {locationSuccess && (
+                  <p className="text-sm rounded-xl px-4 py-3" style={{ background: 'var(--ok-soft)', color: 'var(--ok)' }}>{locationSuccess}</p>
+                )}
+                {locationError && (
+                  <p role="alert" className="text-sm rounded-xl px-4 py-3 flex items-center gap-1.5" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>
+                    <AlertCircle size={12} /> {locationError}
+                  </p>
+                )}
 
                 {/* Label */}
                 <div>
-                  <label className="block text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: 'var(--fg)' }}>Label</label>
-                  <div className="flex gap-2">
+                  <span className={labelCls} style={{ color: 'var(--fg-muted)' }}>Label</span>
+                  <div className="flex flex-wrap gap-2">
                     {(['Home', 'Work', 'Other'] as const).map((l) => {
                       const LIcon = LABEL_ICONS[l];
+                      const on = form.label === l;
                       return (
-                        <button key={l} onClick={() => setField('label', l)}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold transition-all"
-                          style={{
-                            background: form.label === l ? 'var(--primary)' : 'var(--bg-elevated)',
-                            color: form.label === l ? 'var(--primary-fg)' : 'var(--fg-muted)',
-                            border: `1px solid ${form.label === l ? 'var(--primary)' : 'var(--border)'}`,
-                          }}>
+                        <button key={l} type="button" onClick={() => setField('label', l)} aria-pressed={on}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border text-sm font-semibold transition-colors"
+                          style={on
+                            ? { background: 'var(--brand)', borderColor: 'var(--brand)', color: 'var(--brand-fg)' }
+                            : { background: 'var(--surface)', borderColor: 'var(--border-strong)', color: 'var(--fg-muted)' }}>
                           <LIcon size={12} /> {l}
                         </button>
                       );
@@ -733,150 +469,114 @@ export default function AccountProfilePage() {
                   </div>
                 </div>
 
-                <div className="grid sm:grid-cols-2 gap-3">
+                <div className="grid sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Full Name *</label>
-                    <input value={form.full_name ?? ''} onChange={(e) => setField('full_name', e.target.value)}
-                      placeholder="Recipient's name" className="input-field" />
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Full Name *</label>
+                    <input name="name" autoComplete="shipping name" aria-label="Full name" value={form.full_name ?? ''} onChange={(e) => setField('full_name', e.target.value)}
+                      placeholder="Recipient's name" className="ui-input" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Phone *</label>
-                    <input value={form.phone ?? ''} onChange={(e) => setField('phone', e.target.value)}
-                      placeholder="+91 98765 43210" type="tel" className="input-field" />
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Phone *</label>
+                    <input name="tel" autoComplete="shipping tel" inputMode="tel" aria-label="Phone" value={form.phone ?? ''} onChange={(e) => setField('phone', e.target.value)}
+                      placeholder="+91 98765 43210" type="tel" className="ui-input" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Address Line 1 *</label>
-                  <input value={form.address_line_1 ?? ''} onChange={(e) => setField('address_line_1', e.target.value)}
-                    placeholder="House / Flat no, Building name, Street" className="input-field" />
+                  <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Address Line 1 *</label>
+                  <input id="account-address-line1" name="address-line1" autoComplete="shipping address-line1" aria-label="Address line 1" value={form.address_line_1 ?? ''} onChange={(e) => setField('address_line_1', e.target.value)}
+                    placeholder="House / Flat no, Building name, Street" className="ui-input" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Address Line 2 <span style={{ color: 'var(--fg-subtle)' }}>(optional)</span></label>
-                  <input value={form.address_line_2 ?? ''} onChange={(e) => setField('address_line_2', e.target.value)}
-                    placeholder="Area, Landmark" className="input-field" />
+                  <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Address Line 2 <span style={{ color: 'var(--fg-subtle)' }}>(optional)</span></label>
+                  <input name="address-line2" autoComplete="shipping address-line2" aria-label="Address line 2" value={form.address_line_2 ?? ''} onChange={(e) => setField('address_line_2', e.target.value)}
+                    placeholder="Area, Landmark" className="ui-input" />
                 </div>
 
-                <div className="grid sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Pincode *</label>
-                    <input value={form.pincode ?? ''} onChange={(e) => setField('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      placeholder="560001" maxLength={6} className="input-field" />
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Pincode *</label>
+                    <input name="postal-code" autoComplete="shipping postal-code" inputMode="numeric" aria-label="Pincode" value={form.pincode ?? ''} onChange={(e) => setField('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="560001" maxLength={6} className="ui-input" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>City *</label>
-                    <input value={form.city ?? ''} onChange={(e) => setField('city', e.target.value)}
-                      placeholder="Bengaluru" className="input-field" />
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>City *</label>
+                    <input name="address-level2" autoComplete="shipping address-level2" aria-label="City" value={form.city ?? ''} onChange={(e) => setField('city', e.target.value)}
+                      placeholder="Bengaluru" className="ui-input" />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>State *</label>
-                    <select value={form.state ?? 'Karnataka'} onChange={(e) => setField('state', e.target.value)}
-                      className="input-field cursor-pointer">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>State *</label>
+                    <select name="address-level1" autoComplete="shipping address-level1" aria-label="State" value={form.state ?? 'Karnataka'} onChange={(e) => setField('state', e.target.value)}
+                      className="ui-input cursor-pointer">
                       {INDIA_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-2">
-                  <button onClick={closeForm}
-                    className="flex-1 py-3 rounded-xl font-bold text-sm border"
-                    style={{ borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
-                    Cancel
-                  </button>
-                  <button onClick={handleSave}
-                    className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
-                    {editing ? 'Save Changes' : 'Add Address'}
-                  </button>
+                <div className="flex gap-3 pt-3">
+                  <button onClick={closeForm} className="ui-btn-ghost flex-1">Cancel</button>
+                  <button onClick={handleSave} className="ui-btn flex-1">{editing ? 'Save Changes' : 'Add Address'}</button>
                 </div>
               </div>
             )}
           </div>
         </div>
       )}
+
       {/* Edit Profile Modal */}
       {showProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
-            onClick={() => setShowProfileModal(false)} />
-          <div className="relative w-full max-w-md rounded-2xl p-6"
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)' }}>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-black text-base" style={{ color: 'var(--fg)' }}>Edit Profile Details</h3>
-              <button onClick={() => setShowProfileModal(false)} style={{ color: 'var(--fg-muted)' }}><X size={18} /></button>
+        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0" style={{ background: 'rgba(22,20,18,0.5)' }} onClick={() => setShowProfileModal(false)} />
+          <div role="dialog" aria-modal="true" aria-label="Edit profile details" className={`${modalPanel} sm:max-w-md`} style={modalStyle}>
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <p className="text-sm font-semibold mb-1" style={{ color: 'var(--brand)' }}>Your account</p>
+                <h3 className="ui-heading text-2xl leading-tight" style={{ color: 'var(--fg)' }}>Edit Profile Details</h3>
+              </div>
+              <button onClick={() => setShowProfileModal(false)} aria-label="Close" style={{ color: 'var(--fg-muted)' }}><X size={20} /></button>
             </div>
 
             {profileSuccess ? (
-              <div className="flex flex-col items-center py-8">
-                <CheckCircle size={40} style={{ color: '#22c55e' }} className="mb-3 animate-bounce" />
-                <p className="font-bold text-base" style={{ color: 'var(--fg)' }}>Profile updated successfully!</p>
+              <div className="flex flex-col items-center py-10">
+                <CheckCircle size={36} style={{ color: 'var(--ok)' }} className="mb-3" />
+                <p className="ui-heading text-xl" style={{ color: 'var(--fg)' }}>Profile updated successfully!</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {profileError && (
-                  <div className="p-3 rounded-xl text-xs font-semibold flex items-center gap-2"
-                    style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}>
-                    <AlertCircle size={14} />
-                    {profileError}
-                  </div>
+                  <p role="alert" className="text-sm rounded-xl px-4 py-3 flex items-center gap-2" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>
+                    <AlertCircle size={13} /> {profileError}
+                  </p>
                 )}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>First Name *</label>
-                    <input
-                      value={profileForm.firstName}
-                      onChange={(e) => setProfileForm((f) => ({ ...f, firstName: e.target.value }))}
-                      placeholder="First Name"
-                      className="input-field"
-                    />
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>First Name *</label>
+                    <input value={profileForm.firstName} onChange={(e) => setProfileForm((f) => ({ ...f, firstName: e.target.value }))}
+                      placeholder="First Name" autoComplete="given-name" className="ui-input" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Last Name</label>
-                    <input
-                      value={profileForm.lastName}
-                      onChange={(e) => setProfileForm((f) => ({ ...f, lastName: e.target.value }))}
-                      placeholder="Last Name"
-                      className="input-field"
-                    />
+                    <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Last Name</label>
+                    <input value={profileForm.lastName} onChange={(e) => setProfileForm((f) => ({ ...f, lastName: e.target.value }))}
+                      placeholder="Last Name" autoComplete="family-name" className="ui-input" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Mobile Phone</label>
-                  <input
-                    value={profileForm.phone}
-                    onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
-                    placeholder="10-digit mobile number"
-                    type="tel"
-                    className="input-field"
-                  />
+                  <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Mobile Phone</label>
+                  <input value={profileForm.phone} onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="10-digit mobile number" type="tel" inputMode="tel" autoComplete="tel" className="ui-input" />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold mb-1.5" style={{ color: 'var(--fg)' }}>Date of Birth</label>
-                  <input
-                    value={profileForm.dob}
-                    onChange={(e) => setProfileForm((f) => ({ ...f, dob: e.target.value }))}
-                    type="date"
-                    className="input-field cursor-pointer"
-                  />
+                  <label className={labelCls} style={{ color: 'var(--fg-muted)' }}>Date of Birth</label>
+                  <input value={profileForm.dob} onChange={(e) => setProfileForm((f) => ({ ...f, dob: e.target.value }))}
+                    type="date" className="ui-input cursor-pointer" />
                 </div>
 
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => setShowProfileModal(false)}
-                    className="flex-1 py-3 rounded-xl font-bold text-sm border"
-                    style={{ borderColor: 'var(--border)', color: 'var(--fg-muted)' }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSaveProfile}
-                    disabled={profileUpdating}
-                    className="flex-1 py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 disabled:opacity-50"
-                    style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
-                  >
+                <div className="flex gap-3 pt-3">
+                  <button onClick={() => setShowProfileModal(false)} className="ui-btn-ghost flex-1">Cancel</button>
+                  <button onClick={handleSaveProfile} disabled={profileUpdating} className="ui-btn flex-1">
                     {profileUpdating ? 'Saving...' : 'Save Profile'}
                   </button>
                 </div>
@@ -885,6 +585,6 @@ export default function AccountProfilePage() {
           </div>
         </div>
       )}
-    </main>
+    </AccountShell>
   );
 }
