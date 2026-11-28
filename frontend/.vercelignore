@@ -1,0 +1,13 @@
+# Never upload to Vercel: customer data, secrets, local-only media and test output
+backups
+.env*
+product_photos
+reel screenshots
+playwright-report
+test-results
+coverage
+.next
+.next_bkp
+node_modules
+*_output.txt
+*.tsbuildinfo
