@@ -3,6 +3,9 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { getCollections } from '@/lib/supabase/queries';
 
+// Collections are edited in admin — always render from live data (never a build-time snapshot).
+export const dynamic = 'force-dynamic';
+
 const num = (i: number) => String(i + 1).padStart(2, '0');
 
 function Cover({ src, alt, index, sizes, priority }: { src?: string | null; alt: string; index: number; sizes: string; priority?: boolean }) {

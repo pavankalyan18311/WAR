@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, Eye, EyeOff, Film, Megaphone, Save, Trash2, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, Bell, Eye, EyeOff, Film, Megaphone, Save, Trash2, Upload } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { instagramEmbedUrl, type MarqueeSettings, type Reel } from '@/lib/homeContent';
 import InstagramEmbed from '@/components/home/InstagramEmbed';
+import RackTeesCard from '@/components/admin/RackTeesCard';
 
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' };
 const field = { background: 'var(--bg-subtle)', border: '1px solid var(--border)', color: 'var(--fg)' };
@@ -13,6 +14,80 @@ const inputCls = 'mt-1 w-full px-3 py-2 rounded-lg text-sm';
 function Status({ s }: { s: { ok: boolean; text: string } | null }) {
   if (!s) return null;
   return <span role={s.ok ? 'status' : 'alert'} className="text-sm font-semibold" style={{ color: s.ok ? '#16a34a' : '#ef4444' }}>{s.text}</span>;
+}
+
+/** The black announcement bar above the header: messages (one per line) + on/off, with a preview. */
+function AnnouncementsCard() {
+  const [texts, setTexts] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState(true);
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/home').then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d?.announcements) return;
+      setTexts(d.announcements.items.join('\n'));
+      setEnabled(d.announcements.enabled !== false);
+    }).catch(() => {});
+  }, []);
+
+  if (texts === null) return <section className="rounded-2xl p-5 h-40 skeleton" />;
+  const items = texts.split('\n').map((t) => t.trim()).filter(Boolean);
+
+  const save = async () => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const res = await fetch('/api/admin/home', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ announcements: { enabled, items } }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not save.');
+      setStatus({ ok: true, text: 'Saved — live at the top of every page' });
+    } catch (err: any) {
+      setStatus({ ok: false, text: err.message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl p-5 space-y-4" style={card}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold inline-flex items-center gap-2"><Bell size={16} /> Announcement bar</h2>
+        <label className="text-sm inline-flex items-center gap-2" style={{ color: 'var(--fg-muted)' }}>
+          <input type="checkbox" aria-label="Show announcement bar" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Show bar
+        </label>
+      </div>
+      <p className="text-xs" style={{ color: 'var(--fg-muted)' }}>
+        The black strip above the menu on every page; the messages take turns every few seconds. Type{' '}
+        <code>{'{free_shipping}'}</code> for your free-shipping amount and <code>{'{return_days}'}</code> for your return days —
+        they update by themselves when those settings change.
+      </p>
+      <label className="text-sm block" style={{ color: 'var(--fg-muted)' }}>
+        Messages — one per line (up to 6, max 80 characters each)
+        <textarea aria-label="Announcement messages" value={texts} onChange={(e) => setTexts(e.target.value)} rows={4}
+          className={`${inputCls} font-medium`} style={field} />
+      </label>
+      <div>
+        <p className="text-xs mb-1.5" style={{ color: 'var(--fg-muted)' }}>Preview</p>
+        <div data-testid="announcement-preview" className="rounded-lg py-2 px-3 flex flex-wrap gap-x-6 gap-y-1 justify-center text-[11px] uppercase tracking-[0.18em]"
+          style={{ background: 'var(--fg)', color: 'var(--bg)', opacity: enabled ? 1 : 0.4 }}>
+          {items.map((t, i) => <span key={i}>{t}</span>)}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={save} disabled={saving}
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-60"
+          style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}>
+          <Save size={14} /> {saving ? 'Saving…' : 'Save announcements'}
+        </button>
+        <Status s={status} />
+      </div>
+    </section>
+  );
 }
 
 /** Scrolling banner under the hero: texts + colours, with a live preview. */
@@ -151,12 +226,25 @@ function ReelsCard() {
         const { error } = await createClient().storage.from('media').uploadToSignedUrl(ticket.path, ticket.token, file, { contentType: file.type });
         if (error) throw new Error('Upload failed. Please try again.');
         await send('/api/admin/reels', 'POST', { video_url: ticket.publicUrl, link_url: link, caption });
+        setStatus({ ok: true, text: 'Reel added — it is live on the homepage' });
       } else {
-        // Link only: shown on the homepage with Instagram's own player.
-        await send('/api/admin/reels', 'POST', { link_url: link, caption });
+        // Link only: copy the video from our own Instagram account so it autoplays…
+        const res = await fetch('/api/admin/reels/import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link_url: link, caption }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setStatus({ ok: true, text: 'Reel imported — it plays automatically on the homepage' });
+        } else if (data.code === 'not_connected' || data.code === 'not_found') {
+          // …or, when that isn't possible, show it with Instagram's own player.
+          await send('/api/admin/reels', 'POST', { link_url: link, caption });
+          const why = data.code === 'not_connected' ? 'Instagram is not connected yet' : 'this reel is not on your connected account';
+          setStatus({ ok: true, text: `Reel added with Instagram's player (tap to play) — ${why}.` });
+        } else {
+          throw new Error(data.error || 'Could not import the reel.');
+        }
       }
       setFile(null); setLink(''); setCaption('');
-      setStatus({ ok: true, text: 'Reel added — it is live on the homepage' });
       await load();
     } catch (err: any) {
       setStatus({ ok: false, text: err.message });
@@ -185,7 +273,8 @@ function ReelsCard() {
         <h2 className="font-semibold inline-flex items-center gap-2"><Film size={16} /> Instagram reels</h2>
         <p className="text-xs mt-1" style={{ color: 'var(--fg-muted)' }}>
           Shown on the homepage in place of the old Shipping/Returns/Payments row. Add a reel in either of two ways:
-          <strong> paste its Instagram reel link</strong> (quickest — shown with Instagram's own player, plays when tapped), or
+          <strong> paste its Instagram reel link</strong> (quickest — with Instagram connected, the video is copied from your account and
+          plays automatically; otherwise it is shown with Instagram&apos;s own player and plays when tapped), or
           <strong> upload the video</strong> (MP4, vertical 9:16, under 50 MB — plays automatically on a silent loop, best look). 4–5 reels look best.
         </p>
       </div>
@@ -258,8 +347,10 @@ export default function AdminHomepagePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Homepage</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Edit the scrolling banner and the Instagram reels on your homepage. Changes go live straight away.</p>
+        <p className="text-sm mt-1" style={{ color: 'var(--fg-muted)' }}>Edit the rack tees, the announcement bar, the scrolling banner and the Instagram reels. Changes go live straight away.</p>
       </div>
+      <RackTeesCard />
+      <AnnouncementsCard />
       <BannerCard />
       <ReelsCard />
     </div>

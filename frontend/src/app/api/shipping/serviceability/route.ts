@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { checkPincodeServiceability } from '@/lib/shiprocket';
 
 export const runtime = 'nodejs';
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic';
  * Body: { pincode: string, cod?: boolean, weight?: number }
  */
 export async function POST(request: Request) {
+  const limited = rateLimit(request, 'lookup', RATE.lookup);
+  if (limited) return limited;
+
   try {
     const body = await request.json();
     const { pincode, cod = false, weight = 0.5 } = body;

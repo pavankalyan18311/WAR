@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { requireUser } from '@/lib/apiAuth';
 import { reverseGeocode } from '@/lib/geo';
 
@@ -9,6 +10,9 @@ const UNAVAILABLE = 'Could not detect your address right now — please type you
 
 /** GET /api/geo/reverse?lat=..&lon=.. → { line1, area, city, state, pincode }. Signed-in customers only. */
 export async function GET(request: Request) {
+  const limited = rateLimit(request, 'lookup', RATE.lookup);
+  if (limited) return limited;
+
   const auth = await requireUser();
   if (auth.response) return auth.response;
 

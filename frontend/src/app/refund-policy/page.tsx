@@ -1,8 +1,14 @@
 import Link from 'next/link';
+import { getServiceClient } from '@/lib/admin/routeHelpers';
+import { loadStoreSettings } from '@/lib/checkout/storeSettings';
 import { LegalPage, Section } from '@/components/ui/LegalPage';
 import { storePolicy as p } from '@/lib/storePolicy';
 
-export default function RefundPolicyPage() {
+// The return window is edited in Admin → Settings — always show the latest.
+export const dynamic = 'force-dynamic';
+
+export default async function RefundPolicyPage() {
+  const returnDays = (await loadStoreSettings(getServiceClient()).catch(() => null))?.return_days ?? 7;
   return (
     <LegalPage title="Cancellation, Return & Refund Policy" lastUpdated={p.lastUpdated}>
       <Section title="Cancelling an Order">
@@ -11,8 +17,8 @@ export default function RefundPolicyPage() {
         <p>Once an order has been dispatched it can no longer be cancelled, but you can return it after delivery (see below).</p>
       </Section>
 
-      <Section title={`${p.returnDays}-Day Returns & Size Exchanges`}>
-        <p>Not happy with your purchase or need a different size? You can request a return or size exchange within <strong>{p.returnDays} days of delivery</strong>.</p>
+      <Section title={`${returnDays}-Day Returns & Size Exchanges`}>
+        <p>Not happy with your purchase or need a different size? You can request a return or size exchange within <strong>{returnDays} days of delivery</strong>.</p>
         <p>To be eligible, the item must be:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li>Unworn, unwashed and unaltered, with all original tags attached</li>

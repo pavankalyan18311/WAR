@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import Marquee from '@/components/home/Marquee';
 import InstagramReels from '@/components/home/InstagramReels';
 
@@ -22,7 +22,7 @@ describe('InstagramReels', () => {
     { id: 'r2', video_url: 'https://cdn/2.mp4', poster_url: null, link_url: null, caption: null, sort_order: 2, is_active: true },
   ];
 
-  it('plays every reel silently on a loop and links each one to Instagram', () => {
+  it('plays every reel silently on a loop (loaded once on screen) and links each one to Instagram', () => {
     const { container } = render(<InstagramReels reels={reels} instagramUrl="https://www.instagram.com/war.wear/" />);
     const videos = container.querySelectorAll('video');
     expect(videos).toHaveLength(2);
@@ -30,7 +30,7 @@ describe('InstagramReels', () => {
       expect(v.muted).toBe(true);
       expect(v).toHaveAttribute('loop');
       expect(v).toHaveAttribute('playsinline');
-      expect(v).toHaveAttribute('autoplay');
+      expect(v).toHaveAttribute('preload', 'none'); // downloads only when on screen — see instagramReelsLazy.test
     });
     const links = screen.getAllByRole('link', { name: /watch on instagram/i });
     expect(links[0]).toHaveAttribute('href', 'https://www.instagram.com/reel/AAA/');
@@ -53,13 +53,67 @@ describe('InstagramReels', () => {
 
   it('keeps a single reel reel-sized and centred instead of stretching it full width', () => {
     const { container } = render(<InstagramReels reels={[reels[0]]} instagramUrl={null} />);
-    const link = container.querySelector('a[aria-label^="Watch on Instagram"]')!;
-    expect(link.className).toContain('sm:w-[calc((100%-4rem)/5)]'); // one fifth of the row, like with five reels
-    expect(link.parentElement!.className).toContain('sm:justify-center');
+    const card = container.querySelector('[data-reel]')!;
+    expect(card.className).toContain('sm:w-[calc((100%-4rem)/5)]'); // one fifth of the row, like with five reels
+    expect(card.parentElement!.className).toContain('sm:justify-center');
   });
 
   it('is hidden until reels are added', () => {
     const { container } = render(<InstagramReels reels={[]} instagramUrl={null} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('InstagramReels — sound', () => {
+  const reels = [
+    { id: 'r1', video_url: 'https://cdn/1.mp4', poster_url: null, link_url: 'https://www.instagram.com/reel/AAA/', caption: 'Drop 02', sort_order: 1, is_active: true },
+    { id: 'r2', video_url: 'https://cdn/2.mp4', poster_url: null, link_url: 'https://www.instagram.com/reel/BBB/', caption: 'Drop 03', sort_order: 2, is_active: true },
+  ];
+  const setActivated = (hasBeenActive: boolean) =>
+    Object.defineProperty(navigator, 'userActivation', { value: { hasBeenActive }, configurable: true });
+  const videos = (c: HTMLElement) => Array.from(c.querySelectorAll('video'));
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLMediaElement.prototype, 'play', { value: vi.fn().mockResolvedValue(undefined), configurable: true });
+    Object.defineProperty(HTMLMediaElement.prototype, 'pause', { value: vi.fn(), configurable: true });
+  });
+  afterEach(() => { Reflect.deleteProperty(navigator, 'userActivation'); });
+
+  it('plays a reel with sound on hover once the visitor has interacted with the page, and mutes it on leave', () => {
+    setActivated(true);
+    const { container } = render(<InstagramReels reels={reels} instagramUrl={null} />);
+    const [first] = Array.from(container.querySelectorAll('[data-reel]'));
+    fireEvent.mouseEnter(first);
+    expect(videos(container)[0].muted).toBe(false);
+    expect(videos(container)[1].muted).toBe(true);
+    fireEvent.mouseLeave(first);
+    expect(videos(container)[0].muted).toBe(true);
+  });
+
+  it('stays silent on hover before any interaction (browsers forbid it) and hints to click for sound', () => {
+    setActivated(false);
+    const { container } = render(<InstagramReels reels={reels} instagramUrl={null} />);
+    fireEvent.mouseEnter(container.querySelector('[data-reel]')!);
+    expect(videos(container)[0].muted).toBe(true);
+    expect(screen.getAllByRole('button', { name: /sound on: drop 02/i })[0]).toHaveTextContent(/click for sound/i);
+  });
+
+  it('clicking a reel toggles its sound and mutes the others; it does not leave the page', () => {
+    const { container } = render(<InstagramReels reels={reels} instagramUrl={null} />);
+    const [a, b] = screen.getAllByRole('button', { name: /^sound on/i });
+    fireEvent.click(a);
+    expect(videos(container)[0].muted).toBe(false);
+    expect(a).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(b);
+    expect(videos(container)[0].muted).toBe(true);
+    expect(videos(container)[1].muted).toBe(false);
+    fireEvent.click(b);
+    expect(videos(container)[1].muted).toBe(true);
+    expect(b).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('still links each reel to Instagram from its "View" button', () => {
+    render(<InstagramReels reels={reels} instagramUrl={null} />);
+    expect(screen.getByRole('link', { name: 'Watch on Instagram: Drop 03' })).toHaveAttribute('href', 'https://www.instagram.com/reel/BBB/');
   });
 });

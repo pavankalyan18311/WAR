@@ -118,5 +118,8 @@ physical and memorable: tees hanging on a rail that turn to face the visitor, as
 ## 11. Implementation Notes
 
 - Tee display names and per-tee product links are placeholders until the owner confirms them.
+- As built: animations use CSS (`RackHero.module.css`) rather than framer-motion — simpler and
+  transform/opacity only. Added a "brush" effect: moving the mouse across the rack tilts the tees in
+  that direction and they spring back. The CTA keeps `data-testid="hero-shop-cta"` for the e2e contract.
 - Build order (one TDD step each): config + helpers → static rack render → active selection →
   auto-advance → back-image flip → keyboard → reduced motion → wire into `page.tsx` → e2e.

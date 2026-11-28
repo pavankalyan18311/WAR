@@ -34,7 +34,7 @@ export async function GET() {
 
 /**
  * PUT /api/admin/settings  (admin only)
- * Body (all optional): { free_shipping_threshold, shipping_fee, cod_enabled, auth_popup }
+ * Body (all optional): { free_shipping_threshold, shipping_fee, cod_enabled, return_days, auth_popup }
  */
 export async function PUT(request: Request) {
   const auth = await requireAdmin();
@@ -52,6 +52,13 @@ export async function PUT(request: Request) {
     }
   }
   if ('cod_enabled' in body) patch.cod_enabled = !!body.cod_enabled;
+  if ('return_days' in body) {
+    const days = body.return_days;
+    if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 60) {
+      return NextResponse.json({ error: 'Return window must be a whole number of days between 1 and 60.' }, { status: 400 });
+    }
+    patch.return_days = days;
+  }
   if ('shiprocket_pickup_location' in body) {
     const name = typeof body.shiprocket_pickup_location === 'string' ? body.shiprocket_pickup_location.trim() : '';
     if (!name || name.length > 60) {

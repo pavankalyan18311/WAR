@@ -9,11 +9,13 @@ import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { useIsInWishlist, useWishlistStore } from '@/store/wishlistStore';
 import { useRecentlyViewedStore } from '@/store/recentlyViewedStore';
+import { useRecentlyViewed } from '@/hooks/useRecentlyViewed';
 import { formatPrice } from '@/lib/utils';
 import { priceDisplay } from '@/lib/productPrice';
 import { isVariantAvailable } from '@/lib/stock';
 import { productSpecs } from '@/lib/productSpecs';
 import { storePolicy } from '@/lib/storePolicy';
+import { useReturnDays } from '@/hooks/useReturnDays';
 import ProductGallery from '@/components/product/ProductGallery';
 import ShareMenu from '@/components/product/ShareMenu';
 import StickyBuyBar from '@/components/product/StickyBuyBar';
@@ -100,6 +102,7 @@ function Accordion({ title, children, defaultOpen = false }: { title: string; ch
 }
 
 export default function ProductDetailPage({ params }: { params: Promise<{ slug: string }> | { slug: string } }) {
+  const returnDays = useReturnDays();
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const resolvedParams = typeof (params as any)?.then === 'function' ? use(params as Promise<{ slug: string }>) : (params as { slug: string });
@@ -118,7 +121,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
   const toggleItem = useWishlistStore((s) => s.toggleItem);
   const inWishlist = useIsInWishlist(product?.product_id);
   const addRecentlyViewed = useRecentlyViewedStore((s) => s.addItem);
-  const recentlyViewed = useRecentlyViewedStore((s) => s.items);
+  const recentlyViewed = useRecentlyViewed();
 
   useEffect(() => {
     let mounted = true;
@@ -343,7 +346,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
           {/* Promises */}
           <ul className="grid grid-cols-3 border-y mb-8 text-[11px] uppercase tracking-[0.14em] text-center" style={{ borderColor: 'var(--border-strong)', color: 'var(--fg-muted)' }}>
             <li className="py-4 px-1"><ShippingNote variant="badge" /></li>
-            <li className="py-4 px-1 border-x" style={{ borderColor: 'var(--border)' }}>{storePolicy.returnDays}-day returns</li>
+            <li className="py-4 px-1 border-x" style={{ borderColor: 'var(--border)' }}>{returnDays}-day returns</li>
             <li className="py-4 px-1">Secure checkout</li>
           </ul>
 
@@ -367,7 +370,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ slug: 
               <p>Check your pincode above for the delivery estimate to your area.</p>
             </Accordion>
             <Accordion title="Returns & exchange">
-              <p>Return or exchange size within {storePolicy.returnDays} days of delivery.</p>
+              <p>Return or exchange size within {returnDays} days of delivery.</p>
               <p>Items must be unworn, unwashed and have tags attached.</p>
               <p>Refund within {storePolicy.refundDays} after quality check.</p>
               <Link href="/refund-policy" className="link-rule inline-block mt-2 text-[11px] uppercase tracking-[0.16em]" style={{ color: 'var(--fg)' }}>

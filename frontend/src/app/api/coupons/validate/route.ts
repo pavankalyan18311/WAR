@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { createClient } from '@supabase/supabase-js';
 import { requireUser } from '@/lib/apiAuth';
 import { checkCoupon } from '@/lib/checkout/coupons';
@@ -19,6 +20,9 @@ function getAdminClient() {
  * Preview only — checkout re-validates the coupon on the server with real prices.
  */
 export async function POST(request: Request) {
+  const limited = rateLimit(request, 'coupon', RATE.lookup);
+  if (limited) return limited;
+
   const auth = await requireUser();
   if (auth.response) return auth.response;
 

@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ProductImage from '@/components/product/ProductImage';
-import { MapPin, CreditCard, CheckCircle, ArrowLeft, ArrowRight, ShieldCheck, Lock, AlertCircle, Banknote, Plus, Truck, Copy, Check, RotateCcw } from 'lucide-react';
-import { storePolicy } from '@/lib/storePolicy';
+import { MapPin, CreditCard, CheckCircle, ArrowLeft, ArrowRight, ShieldCheck, Lock, AlertCircle, Banknote, Plus, Truck, Copy, Check, RotateCcw, ShoppingBag } from 'lucide-react';
+import { useReturnDays } from '@/hooks/useReturnDays';
 import { useCartStore } from '@/store/cartStore';
 import { useAuthStore } from '@/store/authStore';
 import { createClient } from '@/lib/supabase/client';
@@ -48,6 +48,7 @@ interface SavedAddress {
 }
 
 export default function CheckoutPage() {
+  const returnDays = useReturnDays();
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
   const { items, getSummary, couponCode, clearCart, refreshQuote, lineIssues, notices, dismissNotices, hasBlockingIssues, applyCoupon, removeCoupon } = useCartStore();
@@ -521,6 +522,24 @@ export default function CheckoutPage() {
     const compare = Number((i.variant as any)?.compare_at_price ?? (i.product as any)?.compare_at_price ?? 0);
     return s + (compare > i.price ? compare : i.price) * i.quantity;
   }, 0);
+  // Nothing to check out: say so, rather than showing an empty order form.
+  if (items.length === 0) {
+    return (
+      <div className="ui-page w-full flex-1">
+        <div className="max-w-md mx-auto w-full px-5 py-20 sm:py-28 text-center">
+          <div className="ui-card p-8 sm:p-10">
+            <span className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-5" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+              <ShoppingBag size={28} />
+            </span>
+            <h1 className="ui-heading text-2xl sm:text-3xl mb-2" style={{ color: 'var(--fg)' }}>Your cart is empty</h1>
+            <p className="text-[15px] mb-8" style={{ color: 'var(--fg-muted)' }}>Add a tee or two, then come back here to check out.</p>
+            <Link href="/shop" className="ui-btn">Shop the drop <ArrowRight size={16} /></Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const productSavings = Math.max(0, mrpTotal - summary.subtotal);
   const totalSavings = productSavings + summary.discount + pointsApplied;
   const sectionTitle = 'ui-heading text-xl sm:text-2xl';
@@ -950,7 +969,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Right: Order Summary */}
-          <aside className="lg:col-span-5 space-y-4 lg:sticky lg:top-24">
+          <aside className="lg:col-span-5 space-y-4 lg:sticky lg:top-28">
             <div className="ui-card p-5 sm:p-6">
               <div className="flex items-baseline justify-between gap-3 pb-3 mb-1 border-b" style={{ borderColor: 'var(--border)' }}>
                 <h3 className="ui-heading text-xl" style={{ color: 'var(--fg)' }}>Order Summary</h3>
@@ -1043,7 +1062,7 @@ export default function CheckoutPage() {
             <div className="grid grid-cols-3 gap-2 text-center">
               {[
                 { icon: ShieldCheck, text: 'Secure payments' },
-                { icon: RotateCcw, text: `Easy ${storePolicy.returnDays}-day returns` },
+                { icon: RotateCcw, text: `Easy ${returnDays}-day returns` },
                 { icon: Banknote, text: 'COD available' },
               ].map(({ icon: Icon, text }) => (
                 <div key={text} className="ui-card-soft px-2 py-3 flex flex-col items-center gap-1.5">

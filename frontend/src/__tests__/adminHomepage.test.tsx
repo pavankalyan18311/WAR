@@ -9,19 +9,24 @@ vi.mock('@/lib/supabase/client', () => ({
 import AdminHomepagePage from '@/app/admin/homepage/page';
 
 let reels: any[];
+// Instagram not connected by default → link-only reels fall back to Instagram's player.
+let importResponse: () => { ok: boolean; json: () => Promise<unknown> };
 const fetchMock = vi.fn();
 const calls = (method: string, url?: string) => fetchMock.mock.calls.filter(([u, i]) => (i?.method ?? 'GET') === method && (!url || u === url));
 
 beforeEach(() => {
   reels = [{ id: 'r1', video_url: 'https://cdn/1.mp4', poster_url: null, link_url: 'https://www.instagram.com/reel/AAA/', caption: 'Drop 02', sort_order: 1, is_active: true }];
   uploadToSignedUrl.mockClear();
+  importResponse = () => ({ ok: false, json: async () => ({ code: 'not_connected', error: 'Instagram is not connected yet.' }) });
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url: string, init?: any) => {
     const method = init?.method ?? 'GET';
     if (url === '/api/admin/home' && method === 'GET') return { ok: true, json: async () => ({
       marquee: { enabled: true, items: ['Without Any Regrets', 'Oversized'], background: '#161412', text_color: '#F5F2EC', accent_color: '#F36E21' },
+      announcements: { enabled: true, items: ['Free shipping on orders above {free_shipping}', 'Cash on delivery available'] },
       instagram_url: '' }) };
     if (url === '/api/admin/reels' && method === 'GET') return { ok: true, json: async () => ({ reels }) };
+    if (url === '/api/admin/reels/import') return importResponse();
     if (url === '/api/admin/uploads/media') return { ok: true, json: async () => ({ path: 'reels/abc.mp4', token: 'tok', publicUrl: 'https://cdn/reels/abc.mp4' }) };
     return { ok: true, json: async () => ({ success: true, reel: { id: 'r2' } }) };
   });
@@ -46,6 +51,21 @@ describe('Admin → Homepage', () => {
     });
   });
 
+  it('edits the announcement bar (one message per line) and saves it', async () => {
+    render(<AdminHomepagePage />);
+    const box = await screen.findByLabelText(/announcement messages/i);
+    await waitFor(() => expect(box).toHaveValue('Free shipping on orders above {free_shipping}\nCash on delivery available'));
+    fireEvent.change(box, { target: { value: 'Drop 02 is live\nCash on delivery available' } });
+    expect(screen.getByTestId('announcement-preview')).toHaveTextContent('Drop 02 is live');
+    fireEvent.click(screen.getByLabelText(/show announcement bar/i));
+    fireEvent.click(screen.getByRole('button', { name: /save announcements/i }));
+
+    await waitFor(() => expect(calls('PUT', '/api/admin/home')).toHaveLength(1));
+    expect(JSON.parse(calls('PUT', '/api/admin/home')[0][1].body)).toEqual({
+      announcements: { enabled: false, items: ['Drop 02 is live', 'Cash on delivery available'] },
+    });
+  });
+
   it('uploads a reel video straight to storage, then adds it with its Instagram link', async () => {
     render(<AdminHomepagePage />);
     await screen.findByText('Drop 02');
@@ -63,7 +83,22 @@ describe('Admin → Homepage', () => {
     });
   });
 
-  it('adds a reel from just its Instagram link — no upload needed', async () => {
+  it('imports a reel from just its link so it autoplays (Instagram connected)', async () => {
+    importResponse = () => ({ ok: true, json: async () => ({ reel: { id: 'r2' } }) });
+    render(<AdminHomepagePage />);
+    await screen.findByText('Drop 02');
+    fireEvent.change(screen.getByLabelText(/^instagram link for this reel/i), { target: { value: 'https://www.instagram.com/reel/CCC/' } });
+    fireEvent.change(screen.getByLabelText(/^caption/i), { target: { value: 'Drop 03' } });
+    fireEvent.click(screen.getByRole('button', { name: /add reel/i }));
+
+    await waitFor(() => expect(calls('POST', '/api/admin/reels/import')).toHaveLength(1));
+    expect(JSON.parse(calls('POST', '/api/admin/reels/import')[0][1].body)).toEqual({ link_url: 'https://www.instagram.com/reel/CCC/', caption: 'Drop 03' });
+    expect(await screen.findByRole('status')).toHaveTextContent(/plays automatically/i);
+    expect(calls('POST', '/api/admin/reels')).toHaveLength(0);
+    expect(uploadToSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('falls back to Instagram\'s player when Instagram is not connected (or the reel is not ours)', async () => {
     render(<AdminHomepagePage />);
     await screen.findByText('Drop 02');
     fireEvent.change(screen.getByLabelText(/^instagram link for this reel/i), { target: { value: 'https://www.instagram.com/reel/CCC/' } });
@@ -71,8 +106,19 @@ describe('Admin → Homepage', () => {
 
     await waitFor(() => expect(calls('POST', '/api/admin/reels')).toHaveLength(1));
     expect(calls('POST', '/api/admin/uploads/media')).toHaveLength(0);
-    expect(uploadToSignedUrl).not.toHaveBeenCalled();
     expect(JSON.parse(calls('POST', '/api/admin/reels')[0][1].body)).toEqual({ link_url: 'https://www.instagram.com/reel/CCC/', caption: '' });
+    expect(await screen.findByRole('status')).toHaveTextContent(/instagram's player.*not connected/i);
+  });
+
+  it('shows Instagram errors (e.g. expired token) instead of silently falling back', async () => {
+    importResponse = () => ({ ok: false, json: async () => ({ code: 'instagram_error', error: 'Your Instagram connection has expired.' }) });
+    render(<AdminHomepagePage />);
+    await screen.findByText('Drop 02');
+    fireEvent.change(screen.getByLabelText(/^instagram link for this reel/i), { target: { value: 'https://www.instagram.com/reel/CCC/' } });
+    fireEvent.click(screen.getByRole('button', { name: /add reel/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your Instagram connection has expired.');
+    expect(calls('POST', '/api/admin/reels')).toHaveLength(0);
   });
 
   it('asks for a video or a link when both are empty', async () => {

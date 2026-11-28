@@ -1,7 +1,7 @@
 import { formatPrice } from '@/lib/utils';
 import { orderReference } from '@/lib/checkout/client';
 import { siteConfig } from '@/lib/siteConfig';
-import { storePolicy } from '@/lib/storePolicy';
+import { DEFAULT_RETURN_DAYS } from '@/lib/checkout/storeSettings';
 
 export interface OrderEmailItem {
   name: string;
@@ -25,6 +25,8 @@ export interface OrderEmailData {
   siteUrl: string;
   /** Reward points earned on this order (delivered email). */
   pointsEarned?: number | null;
+  /** Return / exchange window from Admin → Settings (defaults to 7). */
+  returnDays?: number;
 }
 
 export interface RenderedEmail {
@@ -114,7 +116,7 @@ export function orderPlacedEmail(o: OrderEmailData): RenderedEmail {
     <div style="font-family:${SANS};font-size:11px;letter-spacing:3px;text-transform:uppercase;color:${MUTED};margin-bottom:6px">Shipping to</div>
     <p style="margin:0 0 28px;font-size:14px;color:${INK}">${addressBlock(o.address)}</p>
     ${button(orderUrl(o), 'View your order')}
-    <p style="margin:24px 0 0;font-size:13px;color:${MUTED}">${storePolicy.returnDays}-day returns &amp; size exchange on every order.</p>`;
+    <p style="margin:24px 0 0;font-size:13px;color:${MUTED}">${o.returnDays ?? DEFAULT_RETURN_DAYS}-day returns &amp; size exchange on every order.</p>`;
   const text = [
     `Hi ${firstName(o.customerName)}, thank you for your order ${ref}.`,
     '',
@@ -147,14 +149,14 @@ export function orderDeliveredEmail(o: OrderEmailData): RenderedEmail {
     ${points > 0 ? `<p style="margin:0 0 20px;padding:14px 16px;border:1px solid ${RULE};background:#F5F2EC">You earned <strong style="color:${ACCENT}">${points} reward points</strong> (worth ₹${points}) on this order. Use them on your next order within 90 days.</p>` : ''}
     ${reviewable.length ? `<p style="margin:0 0 8px">How did we do? A quick rating helps other customers pick the right fit.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid ${INK};margin:8px 0 28px">${reviewRows}</table>` : ''}
-    <p style="margin:0 0 24px;font-size:14px;color:${MUTED}">Not the right size? You can request a return or size exchange within ${storePolicy.returnDays} days of delivery.</p>
+    <p style="margin:0 0 24px;font-size:14px;color:${MUTED}">Not the right size? You can request a return or size exchange within ${o.returnDays ?? DEFAULT_RETURN_DAYS} days of delivery.</p>
     ${button(orderUrl(o), 'View your order')}`;
   const text = [
     `Hi ${firstName(o.customerName)}, your order ${ref} has been delivered.`,
     ...(points > 0 ? [`You earned ${points} reward points (worth ₹${points}). Use them within 90 days.`] : []),
     '',
     ...(reviewable.length ? ['Tell us what you think:', ...reviewable.map((it) => `- ${it.name}: ${reviewUrl(o, it)}`), ''] : []),
-    `Return or exchange within ${storePolicy.returnDays} days: ${orderUrl(o)}`,
+    `Return or exchange within ${o.returnDays ?? DEFAULT_RETURN_DAYS} days: ${orderUrl(o)}`,
   ].join('\n');
   return {
     subject: `Delivered — ${ref}`,

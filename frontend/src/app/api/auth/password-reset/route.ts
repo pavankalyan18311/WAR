@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -7,6 +8,8 @@ export const dynamic = 'force-dynamic';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? SUPABASE_ANON_KEY;
+
+const WRONG_CODE = 'That code is wrong or has expired. Please request a new one.';
 
 function isConfigured() {
   return (
@@ -20,25 +23,33 @@ function isConfigured() {
  * POST /api/auth/password-reset
  *
  * body { action: 'send', email: string }
- *   → Checks if email is registered in public.profiles/auth. If not registered, returns 404 error.
- *     If registered, sends password reset OTP.
+ *   → Sends a password reset code if the email has an account. Always answers the same way,
+ *     so the form can't be used to discover which emails are customers.
  *
  * body { action: 'verify', email: string, token: string, password: string }
  *   → Verifies OTP and updates user password in Supabase Auth.
  */
 export async function POST(request: Request) {
-  if (!isConfigured()) {
-    return NextResponse.json(
-      { error: 'Email service is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local.' },
-      { status: 503 },
-    );
-  }
-
   let body: { action?: string; email?: string; token?: string; password?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
+
+  // Limit per visitor AND per email, so nobody can flood an inbox or guess codes from many IPs.
+  const target = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const isVerify = body.action === 'verify';
+  const rule = isVerify ? RATE.verify : RATE.email;
+  const bucket = isVerify ? 'reset-verify' : 'reset-send';
+  const limited = rateLimit(request, bucket, rule) ?? (target ? rateLimit(request, `${bucket}-email`, rule, target) : null);
+  if (limited) return limited;
+
+  if (!isConfigured()) {
+    return NextResponse.json(
+      { error: 'Email service is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to .env.local.' },
+      { status: 503 },
+    );
   }
 
   const { action, email, token, password } = body;
@@ -55,35 +66,26 @@ export async function POST(request: Request) {
 
   // ── SEND OTP FOR FORGOT PASSWORD ──────────────────────────────────────────
   if (action === 'send') {
-    // 1. Check if user profile exists in database
+    // Same answer whether or not the email has an account, so the form can't be used to find customers.
+    const sent = NextResponse.json({ success: true, message: 'If an account exists for this email, a reset code is on its way.' });
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('id')
       .eq('email', cleanEmail)
       .maybeSingle();
+    if (!profile) return sent;
 
-    if (!profile) {
-      return NextResponse.json(
-        { error: `No registered account found with email "${cleanEmail}". Please check your email or create a new account.` },
-        { status: 404 },
-      );
-    }
-
-    // 2. User exists -> Send Password Reset OTP
     const { error: resetErr } = await supabase.auth.resetPasswordForEmail(cleanEmail);
-
     if (resetErr) {
       // Fallback: signInWithOtp without creating a user
       const { error: otpErr } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
         options: { shouldCreateUser: false },
       });
-      if (otpErr) {
-        return NextResponse.json({ error: otpErr.message }, { status: 400 });
-      }
+      if (otpErr) console.error('password-reset send failed:', otpErr.message);
     }
-
-    return NextResponse.json({ success: true, message: 'Password reset OTP sent to registered email.' });
+    return sent;
   }
 
   // ── VERIFY OTP & UPDATE PASSWORD ──────────────────────────────────────────
@@ -118,10 +120,7 @@ export async function POST(request: Request) {
     }
 
     if (verifyError || !verifyData) {
-      return NextResponse.json(
-        { error: verifyError?.message || 'Invalid or expired OTP token. Please request a new one.' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: WRONG_CODE }, { status: 400 });
     }
 
     // 2. Update password via admin API using the user ID from the verified OTP
@@ -133,7 +132,12 @@ export async function POST(request: Request) {
     const { error: updateError } = await supabase.auth.admin.updateUserById(userId, { password });
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 400 });
+      console.error('password-reset update failed:', updateError.message);
+      const weak = /password/i.test(updateError.message);
+      return NextResponse.json(
+        { error: weak ? 'Please choose a stronger password (at least 8 characters, not a common one).' : 'Could not reset your password. Please try again.' },
+        { status: 400 },
+      );
     }
 
     return NextResponse.json({ success: true, message: 'Password reset successfully.' });

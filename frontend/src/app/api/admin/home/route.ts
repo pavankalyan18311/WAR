@@ -1,20 +1,20 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/apiAuth';
 import { getServiceClient } from '@/lib/admin/routeHelpers';
-import { HomeContentError, loadHomeContent, parseInstagramUrl, parseMarqueeInput } from '@/lib/homeContent';
+import { HomeContentError, loadHomeContent, parseAnnouncementsInput, parseInstagramUrl, parseMarqueeInput } from '@/lib/homeContent';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** GET /api/admin/home — scrolling banner + Instagram link (admin only). */
+/** GET /api/admin/home — announcement bar, scrolling banner + Instagram link (admin only). */
 export async function GET() {
   const auth = await requireAdmin();
   if (auth.response) return auth.response;
-  const { marquee, instagramUrl } = await loadHomeContent(getServiceClient());
-  return NextResponse.json({ marquee, instagram_url: instagramUrl ?? '' });
+  const { marquee, announcements, instagramUrl } = await loadHomeContent(getServiceClient());
+  return NextResponse.json({ marquee, announcements, instagram_url: instagramUrl ?? '' });
 }
 
-/** PUT /api/admin/home — Body: { marquee?, instagram_url? } */
+/** PUT /api/admin/home — Body: { marquee?, announcements?, instagram_url? } */
 export async function PUT(request: Request) {
   const auth = await requireAdmin();
   if (auth.response) return auth.response;
@@ -23,6 +23,7 @@ export async function PUT(request: Request) {
   const patch: Record<string, unknown> = {};
   try {
     if ('marquee' in body) patch.home_marquee = parseMarqueeInput(body.marquee);
+    if ('announcements' in body) patch.home_announcements = parseAnnouncementsInput(body.announcements);
     if ('instagram_url' in body) patch.instagram_url = parseInstagramUrl(body.instagram_url);
   } catch (err) {
     if (err instanceof HomeContentError) return NextResponse.json({ error: err.message }, { status: 400 });

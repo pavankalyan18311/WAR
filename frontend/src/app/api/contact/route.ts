@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { getServiceClient } from '@/lib/admin/routeHelpers';
 
@@ -10,6 +11,9 @@ const s = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0
 
 /** POST /api/contact — Body: { name, email, phone?, order_ref?, subject?, message }. Saved for Admin → Messages. */
 export async function POST(request: Request) {
+  const limited = rateLimit(request, 'contact', RATE.form);
+  if (limited) return limited;
+
   const body = await request.json().catch(() => ({}));
 
   // Honeypot: real visitors never see or fill the "website" field.

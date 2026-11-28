@@ -76,3 +76,16 @@ describe('order emails', () => {
     expect(cod.html).not.toContain('refund of');
   });
 });
+
+describe('order emails — return window from Admin → Settings', () => {
+  it('uses the return days passed in', () => {
+    expect(orderPlacedEmail({ ...order, returnDays: 9 }).html).toContain('9-day returns');
+    const delivered = orderDeliveredEmail({ ...order, returnDays: 9 });
+    expect(delivered.html).toContain('within 9 days of delivery');
+    expect(delivered.text).toContain('Return or exchange within 9 days');
+  });
+
+  it('falls back to 7 days', () => {
+    expect(orderPlacedEmail(order).html).toContain('7-day returns');
+  });
+});

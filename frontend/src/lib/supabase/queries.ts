@@ -1,5 +1,3 @@
-import type { Database } from '@/lib/supabase/database.types';
-
 async function getSupabaseClient() {
   const { createClient } = await import('@/lib/supabase/client');
   return createClient();
@@ -66,7 +64,7 @@ export function normalizeProduct(row: any): any {
   let maxCompareAtPrice: number | undefined = undefined;
   let totalStock = 0;
   const uniqueColorsMap = new Map<string, { name: string; hex: string; color_id?: string }>();
-  const uniqueSizesMap = new Map<string, { name: string; size_option_id?: string }>();
+  const uniqueSizesMap = new Map<string, { name: string; size_option_id?: string; order: number }>();
 
   const variants = rawVariants.map((v: any) => {
     const rawP = v.price ?? v.price_override ?? row.price;
@@ -91,7 +89,7 @@ export function normalizeProduct(row: any): any {
 
     const sizeName = v.size_option?.name || v.size || 'Free Size';
     if (!uniqueSizesMap.has(sizeName)) {
-      uniqueSizesMap.set(sizeName, { name: sizeName, size_option_id: v.size_option_id });
+      uniqueSizesMap.set(sizeName, { name: sizeName, size_option_id: v.size_option_id, order: Number(v.size_option?.sort_order ?? 999) });
     }
 
     const inv = Array.isArray(v.inventory) ? v.inventory[0] : v.inventory;
@@ -144,7 +142,8 @@ export function normalizeProduct(row: any): any {
     category_id: primaryCategory?.id ?? undefined,
     category: primaryCategory,
     colors: Array.from(uniqueColorsMap.values()),
-    sizes: Array.from(uniqueSizesMap.values()),
+    // In the size list's order (S, M, L, XL…), not the order the variants happen to come back in.
+    sizes: Array.from(uniqueSizesMap.values()).sort((a, b) => a.order - b.order).map(({ name, size_option_id }) => ({ name, size_option_id })),
     stock_quantity: totalStock,
     is_in_stock: totalStock > 0 || (row.status === 'active' && variants.length === 0),
     rating: row.rating ? Number(row.rating) : undefined,
@@ -530,98 +529,4 @@ export async function fetchUserCartFromDb(userId: string): Promise<any[]> {
     console.error('fetchUserCartFromDb exception:', err);
     return [];
   }
-}
-
-// ─── Orders Queries ───────────────────────────────────────────────────────────
-
-export async function getUserOrders(userId: string) {
-  try {
-    const supabase = await getSupabaseClient();
-    const { data, error } = await supabase
-      .from('orders')
-      .select(`
-        *,
-        order_items(
-          *,
-          product:products(*),
-          variant:product_variants(*, color:colors(*), size_option:size_options(*))
-        )
-      `)
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
-  } catch (err) {
-    console.error('getUserOrders error:', err);
-    return [];
-  }
-}
-
-export async function createOrder(
-  order: Database['public']['Tables']['orders']['Insert'],
-  items: Omit<Database['public']['Tables']['order_items']['Insert'], 'order_id'>[]
-) {
-  const supabase = await getSupabaseClient();
-
-  const { data: newOrder, error: orderError } = await (supabase as any)
-    .from('orders')
-    .insert(order)
-    .select()
-    .single();
-
-  if (orderError) throw orderError;
-
-  const orderItems = items.map((item) => ({ ...item, order_id: (newOrder as { id: string }).id }));
-  const { error: itemsError } = await (supabase as any).from('order_items').insert(orderItems);
-  if (itemsError) throw itemsError;
-
-  return newOrder as Database['public']['Tables']['orders']['Row'];
-}
-
-// ─── Admin Queries ────────────────────────────────────────────────────────────
-
-export async function adminGetAllOrders() {
-  const supabase = await getSupabaseClient();
-  const { data, error } = await supabase
-    .from('orders')
-    .select(`*, profile:profiles(name, email)`)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data || [];
-}
-
-export async function adminUpdateOrderStatus(
-  orderId: string,
-  status: Database['public']['Tables']['orders']['Update']['status']
-) {
-  const supabase = await getSupabaseClient();
-  const { error } = await (supabase as any)
-    .from('orders')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', orderId);
-  if (error) throw error;
-}
-
-export async function adminGetDashboardStats() {
-  const supabase = await getSupabaseClient();
-
-  const [ordersRes, productsRes, customersRes] = await Promise.all([
-    supabase.from('orders').select('total, status, created_at').gte(
-      'created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    ),
-    supabase.from('products').select('id, status').eq('status', 'active'),
-    supabase.from('profiles').select('id, created_at').eq('role', 'customer' as never),
-  ]);
-
-  const orders = (ordersRes.data ?? []) as Array<{ total: number; status: string; created_at: string }>;
-  const revenue = orders
-    .filter((o) => o.status !== 'cancelled' && o.status !== 'refunded')
-    .reduce((sum, o) => sum + Number(o.total), 0);
-
-  return {
-    revenue,
-    orderCount: orders.length,
-    activeProducts: productsRes.data?.length ?? 0,
-    customerCount: customersRes.data?.length ?? 0,
-  };
 }

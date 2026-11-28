@@ -7,10 +7,8 @@ import ProductCard from '@/components/product/ProductCard';
 import ScrollReveal from '@/components/ui/ScrollReveal';
 import ShippingNote from '@/components/ui/ShippingNote';
 
-export async function generateStaticParams() {
-  const collections = await getCollections();
-  return (collections || []).map((c: any) => ({ slug: c.slug }));
-}
+// Collections are edited in admin — always render from live data (never a build-time snapshot).
+export const dynamic = 'force-dynamic';
 
 export default async function CollectionDetailPage({ params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   const resolvedParams = typeof (params as any)?.then === 'function' ? await (params as Promise<{ slug: string }>) : (params as { slug: string });

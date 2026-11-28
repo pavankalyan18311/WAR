@@ -85,6 +85,27 @@ describe('admin homepage routes', () => {
     });
   });
 
+  it('saves the announcement bar; GET returns the defaults before anything is saved', async () => {
+    const before = await (await (await home()).GET()).json();
+    expect(before.announcements.items[2]).toBe('Cash on delivery available');
+    const res = await (await home()).PUT(req('PUT', { announcements: { enabled: true, items: ['Drop 02 is live ', 'COD available'] } }));
+    expect(res.status).toBe(200);
+    expect(settings.home_announcements).toEqual({ enabled: true, items: ['Drop 02 is live', 'COD available'] });
+  });
+
+  it('rejects an empty announcement bar', async () => {
+    const res = await (await home()).PUT(req('PUT', { announcements: { items: [] } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Add at least one announcement.');
+  });
+
+  it('serves the announcement bar publicly (defaults, then what the admin saved)', async () => {
+    const pub = () => import('@/app/api/announcements/route');
+    expect((await (await (await pub()).GET()).json()).items).toHaveLength(3);
+    settings.home_announcements = { enabled: false, items: ['Drop 02 is live'] };
+    expect(await (await (await pub()).GET()).json()).toEqual({ enabled: false, items: ['Drop 02 is live'] });
+  });
+
   it('rejects a bad banner with a clear message', async () => {
     const res = await (await home()).PUT(req('PUT', { marquee: { items: [], background: '#000000', text_color: '#ffffff', accent_color: '#ffffff' } }));
     expect(res.status).toBe(400);

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { getServiceClient } from '@/lib/admin/routeHelpers';
 import { addToMarketingList } from '@/lib/email/marketing';
 
@@ -7,6 +8,9 @@ export const dynamic = 'force-dynamic';
 
 /** POST /api/newsletter — Body: { email }. Subscribing twice is fine. */
 export async function POST(request: Request) {
+  const limited = rateLimit(request, 'newsletter', RATE.form);
+  if (limited) return limited;
+
   const { email: raw } = await request.json().catch(() => ({}));
   const email = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) {

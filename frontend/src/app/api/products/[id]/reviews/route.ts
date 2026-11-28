@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { requireUser } from '@/lib/apiAuth';
 import { getServiceClient } from '@/lib/admin/routeHelpers';
 import { authorLabel, findDeliveredOrder, parseReviewInput, ReviewInputError, summarizeRatings } from '@/lib/reviews';
@@ -40,6 +41,9 @@ export async function GET(_request: Request, { params }: Ctx) {
 
 /** POST /api/products/[id]/reviews — Body: { rating, title?, body }. Customers who received the product only. */
 export async function POST(request: Request, { params }: Ctx) {
+  const limited = rateLimit(request, 'review', RATE.form);
+  if (limited) return limited;
+
   const auth = await requireUser();
   if (auth.response) return auth.response;
   const { id } = await params;

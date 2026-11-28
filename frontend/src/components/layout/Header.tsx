@@ -116,11 +116,13 @@ export default function Header() {
         </div>
       )}
 
+      {/* The announcement bar and the header stay stuck to the top together while scrolling. */}
+      <div className="sticky top-0 z-50">
       <AnnouncementBar />
 
       {/* Main Header */}
       <header
-        className={cn('sticky top-0 z-50 transition-all duration-300')}
+        className={cn('relative transition-all duration-300')}
         style={{
           // Settles into a frosted paper bar with a soft shadow once the page scrolls.
           background: isScrolled ? 'color-mix(in srgb, var(--bg) 82%, transparent)' : 'var(--bg)',
@@ -377,6 +379,7 @@ export default function Header() {
           </div>
         )}
       </header>
+      </div>
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} categories={categories} />
     </>

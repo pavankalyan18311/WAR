@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { getServiceClient } from '@/lib/admin/routeHelpers';
 import { createClient } from '@/lib/supabase/server';
 
@@ -17,6 +18,9 @@ async function sessionUserId(): Promise<string | null> {
 
 /** POST /api/stock-alerts — Body: { variant_id, email }. Asking twice is fine (one request per size + email). */
 export async function POST(request: Request) {
+  const limited = rateLimit(request, 'stock-alert', RATE.form);
+  if (limited) return limited;
+
   const { variant_id, email: raw } = await request.json().catch(() => ({}));
   const email = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
   if (typeof variant_id !== 'string' || !variant_id) {

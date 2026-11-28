@@ -1,4 +1,4 @@
-/** Admin-managed homepage content: scrolling banner and Instagram reels. */
+/** Admin-managed homepage content: announcement bar, scrolling banner and Instagram reels. */
 
 export class HomeContentError extends Error {}
 
@@ -17,6 +17,21 @@ export const DEFAULT_MARQUEE: MarqueeSettings = {
   text_color: '#F5F2EC',
   accent_color: '#F36E21',
 };
+
+/** The black strip above the header. {free_shipping} and {return_days} are filled in from the store settings. */
+export interface AnnouncementSettings {
+  enabled: boolean;
+  items: string[];
+}
+
+export const DEFAULT_ANNOUNCEMENTS: AnnouncementSettings = {
+  enabled: true,
+  items: ['Free shipping on orders above {free_shipping}', '{return_days}-day returns & size exchange', 'Cash on delivery available'],
+};
+
+export function fillAnnouncement(text: string, values: { freeShipping: string; returnDays: number }): string {
+  return text.replaceAll('{free_shipping}', values.freeShipping).replaceAll('{return_days}', String(values.returnDays));
+}
 
 export interface Reel {
   id: string;
@@ -48,6 +63,25 @@ export function parseMarqueeInput(body: any): MarqueeSettings {
     text_color: body.text_color.toUpperCase(),
     accent_color: body.accent_color.toUpperCase(),
   };
+}
+
+export function parseAnnouncementsInput(input: unknown): AnnouncementSettings {
+  const body = (input ?? {}) as { enabled?: unknown; items?: unknown };
+  const items = (Array.isArray(body.items) ? body.items : [])
+    .map((t: unknown) => (typeof t === 'string' ? t.trim() : ''))
+    .filter(Boolean);
+  if (items.length === 0) fail('Add at least one announcement.');
+  if (items.length > 6) fail('Use at most 6 announcements.');
+  if (items.some((t: string) => t.length > 80)) fail('Keep each announcement under 80 characters.');
+  return { enabled: body.enabled !== false, items };
+}
+
+/** Announcement bar as saved by the admin, or the defaults. */
+export function announcementsFrom(input: unknown): AnnouncementSettings {
+  const saved = input as Partial<AnnouncementSettings> | null | undefined;
+  return saved && Array.isArray(saved.items) && saved.items.length
+    ? { enabled: saved.enabled !== false, items: saved.items }
+    : DEFAULT_ANNOUNCEMENTS;
 }
 
 /** An instagram.com link (profile or reel) or "@handle" → full https link; empty → null. */
@@ -94,15 +128,18 @@ export function parseReelInput(body: any): { video_url: string | null; poster_ur
   return { video_url: video, poster_url: poster, link_url: reelLink(body?.link_url) ?? parseInstagramUrl(body?.link_url), caption: caption || null };
 }
 
-/** Homepage data (server): banner, Instagram link and active reels. Falls back to defaults before the migration. */
-export async function loadHomeContent(supabase: any): Promise<{ marquee: MarqueeSettings; instagramUrl: string | null; reels: Reel[] }> {
-  const [{ data: settings }, { data: reels }] = await Promise.all([
+/** Homepage data (server): announcements, banner, Instagram link and active reels. Falls back to defaults before the migration. */
+export async function loadHomeContent(supabase: any): Promise<{ marquee: MarqueeSettings; announcements: AnnouncementSettings; instagramUrl: string | null; reels: Reel[] }> {
+  // Announcements are read on their own, so a missing column (migration not run yet) can't hide the banner settings.
+  const [{ data: settings }, { data: bar }, { data: reels }] = await Promise.all([
     supabase.from('store_settings').select('home_marquee, instagram_url').eq('id', 1).maybeSingle(),
+    supabase.from('store_settings').select('home_announcements').eq('id', 1).maybeSingle(),
     supabase.from('home_reels').select('*').eq('is_active', true).order('sort_order').order('created_at').limit(12),
   ]);
   const m = settings?.home_marquee;
   return {
     marquee: m && Array.isArray(m.items) && m.items.length ? { ...DEFAULT_MARQUEE, ...m } : DEFAULT_MARQUEE,
+    announcements: announcementsFrom(bar?.home_announcements),
     instagramUrl: settings?.instagram_url ?? null,
     reels: reels ?? [],
   };

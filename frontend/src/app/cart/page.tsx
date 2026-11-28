@@ -8,7 +8,7 @@ import { useCartStore } from '@/store/cartStore';
 import { useCartQuoteSync } from '@/lib/checkout/useCartQuoteSync';
 import { useAuthStore } from '@/store/authStore';
 import { formatPrice } from '@/lib/utils';
-import { storePolicy } from '@/lib/storePolicy';
+import { useReturnDays } from '@/hooks/useReturnDays';
 import type { CartItem } from '@/types';
 
 /** MRP of a cart line (falls back to the selling price when there is no higher MRP). */
@@ -47,6 +47,7 @@ function FreeShippingProgress({ subtotal, threshold }: { subtotal: number; thres
 }
 
 export default function CartPage() {
+  const returnDays = useReturnDays();
   const { items, removeItem, updateQuantity, getSummary, applyCoupon, removeCoupon, couponCode, lineIssues, notices, dismissNotices, hasBlockingIssues } = useCartStore();
   useCartQuoteSync();
   const { user } = useAuthStore();
@@ -244,7 +245,7 @@ export default function CartPage() {
           </div>
 
           {/* Order Summary */}
-          <aside className="lg:col-span-5 space-y-4 lg:sticky lg:top-24">
+          <aside className="lg:col-span-5 space-y-4 lg:sticky lg:top-28">
             {/* Coupon */}
             <div className="ui-card p-4 sm:p-5">
               {couponCode ? (
@@ -349,7 +350,7 @@ export default function CartPage() {
             <div className="grid grid-cols-3 gap-2 text-center">
               {[
                 { icon: ShieldCheck, text: 'Secure payments' },
-                { icon: RotateCcw, text: `Easy ${storePolicy.returnDays}-day returns` },
+                { icon: RotateCcw, text: `Easy ${returnDays}-day returns` },
                 { icon: Truck, text: 'COD available' },
               ].map(({ icon: Icon, text }) => (
                 <div key={text} className="ui-card-soft px-2 py-3 flex flex-col items-center gap-1.5">

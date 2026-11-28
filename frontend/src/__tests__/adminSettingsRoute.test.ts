@@ -52,6 +52,19 @@ describe('PUT /api/admin/settings', () => {
     expect(updates).toHaveLength(0);
   });
 
+  it('saves the return / exchange window in days', async () => {
+    const res = await (await route()).PUT(put({ return_days: 9 }));
+    expect(res.status).toBe(200);
+    expect(updates[0]).toMatchObject({ return_days: 9 });
+  });
+
+  it.each([[0], [61], [2.5], ['7']])('rejects a return window of %o days', async (days) => {
+    const res = await (await route()).PUT(put({ return_days: days }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Return window must be a whole number of days between 1 and 60.');
+    expect(updates).toHaveLength(0);
+  });
+
   it('saves the Shiprocket pickup location, parcel size/weight and auto-assign switch', async () => {
     const res = await (await route()).PUT(put({
       shiprocket_pickup_location: '  Hyderabad Hub ', parcel_weight_kg: 0.35, parcel_length_cm: 32, parcel_breadth_cm: 26, parcel_height_cm: 4, shiprocket_auto_assign: false,

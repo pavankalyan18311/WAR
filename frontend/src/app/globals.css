@@ -398,3 +398,8 @@ h1.ui-heading, h2.ui-heading, h3.ui-heading, .ui-heading {
 .ui-chip-bad   { background: var(--bad-soft);   color: var(--bad); }
 .ui-link { color: var(--brand); font-weight: 700; text-underline-offset: 3px; }
 .ui-link:hover { text-decoration: underline; }
+
+/* Phoenix emblem: black wings would vanish on dark backgrounds, so flip them to light. */
+html.dark .phoenix-mark {
+  filter: invert(1) hue-rotate(180deg);
+}

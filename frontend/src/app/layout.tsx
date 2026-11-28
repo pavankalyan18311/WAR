@@ -33,7 +33,7 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       className={`h-full antialiased ${display.variable} ${sans.variable}`}
     >
-      <body className="min-h-screen flex flex-col font-sans h-full" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+      <body className="min-h-screen flex flex-col font-sans" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
         <ThemeProvider>
           <AuthInitializer />
           <div className="min-h-screen flex flex-col w-full flex-1">

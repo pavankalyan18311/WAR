@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useAuthStore } from '@/store/authStore';
 import { Tag, X } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 
@@ -30,12 +31,16 @@ export default function CouponPicker({ subtotal, appliedCode, onApply, onRemove 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
+  const signedIn = useAuthStore((s) => s.isAuthenticated);
+
+  // Saved coupons belong to an account — don't ask before the customer has signed in.
   useEffect(() => {
+    if (!signedIn) return;
     fetch('/api/coupons')
       .then((r) => (r.ok ? r.json() : { coupons: [] }))
       .then((d) => setCoupons(d.coupons ?? []))
       .catch(() => setCoupons([]));
-  }, []);
+  }, [signedIn]);
 
   const apply = async (raw: string) => {
     const c = raw.toUpperCase().trim();

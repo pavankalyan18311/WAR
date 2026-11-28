@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { siteConfig } from '@/lib/siteConfig';
+import PhoenixMark from '@/components/brand/PhoenixMark';
 
 const LINKS = {
   Shop: [
@@ -34,7 +35,8 @@ const CONTACT = [siteConfig.supportEmail, siteConfig.supportPhone, siteConfig.ad
 
 export default function Footer() {
   const pathname = usePathname();
-  if (pathname.startsWith('/admin')) return null;
+  // The rack page (/) is a single full screen — no footer there.
+  if (pathname === '/' || pathname.startsWith('/admin')) return null;
 
   return (
     <footer className="mt-auto w-full border-t" style={{ background: 'var(--bg)', borderColor: 'var(--border-strong)' }}>
@@ -42,6 +44,7 @@ export default function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-12 gap-10">
           {/* Brand */}
           <div className="col-span-2 md:col-span-5">
+            <PhoenixMark className="w-20 mb-6" />
             <Link href="/" className="font-display block leading-[0.95]" style={{ fontSize: 'clamp(2.4rem, 4.5vw, 3.6rem)' }}>
               Without Any <em style={{ color: 'var(--accent)' }}>Regrets.</em>
             </Link>

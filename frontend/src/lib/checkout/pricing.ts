@@ -2,6 +2,8 @@ export interface StoreSettings {
   free_shipping_threshold: number;
   shipping_fee: number;
   cod_enabled: boolean;
+  /** Return / size-exchange window in days (Admin → Settings). Missing → 7. */
+  return_days?: number;
 }
 
 export interface CouponTerms {

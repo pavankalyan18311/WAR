@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { getServiceClient } from '@/lib/admin/routeHelpers';
+import { loadStoreSettings } from '@/lib/checkout/storeSettings';
 import { LegalPage, Section } from '@/components/ui/LegalPage';
 import { storePolicy } from '@/lib/storePolicy';
 import { siteConfig } from '@/lib/siteConfig';
@@ -6,7 +8,11 @@ import { siteConfig } from '@/lib/siteConfig';
 const business = siteConfig.legalName || 'WAR — Without Any Regrets';
 const link = (href: string, text: string) => <Link href={href} className="underline">{text}</Link>;
 
-export default function TermsOfServicePage() {
+// The return window is edited in Admin → Settings — always show the latest.
+export const dynamic = 'force-dynamic';
+
+export default async function TermsOfServicePage() {
+  const returnDays = (await loadStoreSettings(getServiceClient()).catch(() => null))?.return_days ?? 7;
   const grievance = [
     siteConfig.grievanceOfficerName,
     siteConfig.grievanceOfficerEmail && `Email: ${siteConfig.grievanceOfficerEmail}`,
@@ -79,7 +85,7 @@ export default function TermsOfServicePage() {
       <Section title="8. Shipping, Cancellations & Returns">
         <p>
           Delivery timelines and charges are explained in our {link('/shipping-policy', 'Shipping Policy')}. You can cancel an
-          order before it is dispatched, and return or exchange eligible items within {storePolicy.returnDays} days of delivery,
+          order before it is dispatched, and return or exchange eligible items within {returnDays} days of delivery,
           as described in our {link('/refund-policy', 'Cancellation, Return & Refund Policy')}. Risk in the products passes to
           you on delivery.
         </p>

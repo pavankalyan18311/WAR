@@ -39,3 +39,6 @@ frontend/.next_bkp/
 *_output.txt
 *.log
 
+
+# Local data backups (may contain customer details) — never commit
+frontend/backups/

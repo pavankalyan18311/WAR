@@ -1,0 +1,90 @@
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+import { getProducts } from '@/lib/supabase/queries';
+import type { Product } from '@/types';
+import NewsletterForm from '@/components/home/NewsletterForm';
+import ProductCard from '@/components/product/ProductCard';
+import Marquee from '@/components/home/Marquee';
+import InstagramReels from '@/components/home/InstagramReels';
+import { DEFAULT_MARQUEE, loadHomeContent } from '@/lib/homeContent';
+import { getServiceClient } from '@/lib/admin/routeHelpers';
+import ScrollReveal from '@/components/ui/ScrollReveal';
+import DropHero from '@/components/home/DropHero';
+import DropIntro from '@/components/home/DropIntro';
+import { BRAND_ORANGE } from '@/components/brand/WarLogo';
+
+/** "01 — New in" style heading used by every home section. */
+function SectionHead({ index, title, href, cta }: { index: string; title: string; href?: string; cta?: string }) {
+  return (
+    <div className="flex items-end justify-between gap-6 pb-6 mb-8 border-b" style={{ borderColor: 'var(--border-strong)' }}>
+      <div>
+        <p className="eyebrow mb-3">{index}</p>
+        <h2 style={{ fontSize: 'clamp(2rem, 4vw, 3.25rem)', lineHeight: 1 }}>{title}</h2>
+      </div>
+      {href && (
+        <Link href={href} className="link-rule text-[11px] font-semibold uppercase tracking-[0.2em] whitespace-nowrap inline-flex items-center gap-2">
+          {cta} <ArrowRight size={13} />
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// Banner and reels are edited in Admin → Homepage — always show the latest.
+export const dynamic = 'force-dynamic';
+
+/**
+ * Shop landing page — reached from "Shop the drop" on the rack page (/).
+ * Drop 01 opening (banner + six-tee lineup) → scrolling banner → Zoro spotlight → latest drop → reels → newsletter.
+ */
+export default async function ShopPage() {
+  const [newIn, home] = await Promise.all([
+    getProducts({ limit: 8 }) as Promise<Product[]>,
+    loadHomeContent(getServiceClient()).catch(() => ({ marquee: DEFAULT_MARQUEE, instagramUrl: null, reels: [] })),
+  ]);
+
+  // Every section sits on the site background (light or dark, from the header switch) — no colour breaks.
+  return (
+    <main>
+      {/* The whole drop at a glance (words and images in src/lib/dropIntro.ts) */}
+      <DropIntro />
+
+      {/* Scrolling banner — text and colours from Admin → Homepage */}
+      <Marquee settings={home.marquee} />
+
+      {/* Spotlight on the lead tee (words and photos in src/lib/dropHero.ts) */}
+      <DropHero />
+
+      {/* 02 — New in ("Explore the drop" in the hero jumps here) */}
+      <div id="latest-drop" className="scroll-mt-28" />
+      {newIn.length > 0 && (
+        <ScrollReveal as="section" className="w-full max-w-7xl mx-auto px-5 sm:px-8 py-20">
+          <SectionHead index="01 — New in" title="The latest drop" href="/products?sort=newest" cta="Shop all new" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-10 sm:gap-x-6">
+            {newIn.map((p) => <ProductCard key={p.product_id} product={p} />)}
+          </div>
+        </ScrollReveal>
+      )}
+
+      {/* Instagram reels — managed in Admin → Homepage (hidden until reels are added) */}
+      <InstagramReels reels={home.reels} instagramUrl={home.instagramUrl} />
+
+      {/* Newsletter */}
+      <ScrollReveal as="section" className="w-full max-w-7xl mx-auto px-5 sm:px-8 pb-24">
+        <div className="relative overflow-hidden px-6 sm:px-12 py-14 sm:py-16 grid md:grid-cols-2 gap-10 items-end"
+          style={{ background: 'radial-gradient(70% 120% at 100% 0%, rgba(243,110,33,0.14), transparent 60%), var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6 }}>
+          <div>
+            <p className="eyebrow mb-4" style={{ color: BRAND_ORANGE }}>03 — Letters from WAR</p>
+            <h2 style={{ fontSize: 'clamp(2rem, 4vw, 3.25rem)', lineHeight: 1.02 }}>
+              First word on every <em style={{ color: BRAND_ORANGE }}>drop.</em>
+            </h2>
+            <p className="mt-4 text-sm max-w-md" style={{ color: 'var(--fg-muted)' }}>
+              New releases and restocks, straight to your inbox. No spam — unsubscribe any time.
+            </p>
+          </div>
+          <NewsletterForm />
+        </div>
+      </ScrollReveal>
+    </main>
+  );
+}

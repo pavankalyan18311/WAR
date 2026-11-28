@@ -48,3 +48,14 @@ describe('getPublicStorageUrl', () => {
     expect(getPublicStorageUrl('', 'p1')).toBe('');
   });
 });
+
+describe('normalizeProduct — size order', () => {
+  it('lists sizes in the size list order (S, M, L, XL), whatever order the variants come back in', () => {
+    const size = (name: string, sort_order: number) => ({ id: `s-${name}`, name, sort_order });
+    const variant = (name: string, sort_order: number) => ({
+      id: `v-${name}`, price: 1199, size_option_id: `s-${name}`, size_option: size(name, sort_order), inventory: { quantity: 10 },
+    });
+    const p = normalizeProduct({ ...row, product_variants: [variant('S', 2), variant('L', 4), variant('XL', 5), variant('M', 3)] });
+    expect(p.sizes.map((s: { name: string }) => s.name)).toEqual(['S', 'M', 'L', 'XL']);
+  });
+});

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { getServiceClient } from '@/lib/admin/routeHelpers';
 import { getPublicStorageUrl } from '@/lib/supabase/queries';
 import { cleanSearchQuery, MIN_QUERY_LENGTH, searchProducts, type SearchableProduct } from '@/lib/search';
@@ -31,6 +32,9 @@ function toSearchable(row: any): SearchableProduct {
 
 /** GET /api/search?q=… — up to 6 active products for the header's predictive search. */
 export async function GET(request: Request) {
+  const limited = rateLimit(request, 'search', RATE.search);
+  if (limited) return limited;
+
   const q = cleanSearchQuery(new URL(request.url).searchParams.get('q'));
   if (q.length < MIN_QUERY_LENGTH) return NextResponse.json({ results: [] }, { headers: CACHE });
 

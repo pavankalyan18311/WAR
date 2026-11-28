@@ -143,11 +143,11 @@ test('add a product with a dropdown value, an "Other" value, sizes, stock and an
   expect(problems, problems.join('\n')).toEqual([]);
 });
 
-test('save shipping settings from the admin UI (value unchanged)', async ({ page }) => {
+test('save store settings from the admin UI (values unchanged)', async ({ page }) => {
   const problems = watch(page);
   await login(page);
   await page.goto('/admin/settings', { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Save Shipping Settings' }).click();
-  await expect(page.getByText('Shipping settings saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByText(/Settings saved/)).toBeVisible();
   expect(problems, problems.join('\n')).toEqual([]);
 });

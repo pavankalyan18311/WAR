@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   Check, CheckCircle2, ClipboardCheck, Copy, CreditCard, ExternalLink, Heart, Home, LogOut, MapPin, Package,
-  PackageCheck, RotateCcw, Truck, User, XCircle, Clock,
+  PackageCheck, RotateCcw, Truck, User, XCircle, Clock, Lock,
 } from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
 
 /* ─── Account area building blocks (UI kit: brand orange, soft cards) ─────── */
 
@@ -18,7 +19,39 @@ const TABS: { key: AccountTab; label: string; href: string; icon: React.ElementT
   { key: 'addresses', label: 'Addresses', href: '/account/profile#addresses', icon: MapPin },
 ];
 
-/** Page frame for every account page: friendly header, pill tab navigation, content. */
+const SIGN_IN_TEXT: Record<AccountTab, string> = {
+  profile: 'your profile',
+  orders: 'your orders',
+  wishlist: 'your wishlist',
+  addresses: 'your saved addresses',
+};
+
+// true in the browser, false while rendering on the server (the sign-in state lives in the browser).
+const noop = () => () => {};
+const useIsClient = () => useSyncExternalStore(noop, () => true, () => false);
+
+/** Shown instead of an (empty) account to someone who isn't signed in. */
+function SignInPrompt({ active }: { active: AccountTab }) {
+  return (
+    <div className="w-full ui-page min-h-[70vh]">
+      <div className="max-w-md mx-auto px-4 sm:px-8 py-16 sm:py-24">
+        <div className="ui-card px-6 py-12 text-center">
+          <span className="mx-auto mb-5 w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>
+            <Lock size={22} />
+          </span>
+          <h1 className="ui-heading text-2xl sm:text-3xl mb-2" style={{ color: 'var(--fg)' }}>Sign in to see {SIGN_IN_TEXT[active]}</h1>
+          <p className="text-[15px] mb-8" style={{ color: 'var(--fg-muted)' }}>Track orders, keep a wishlist and check out faster with your WAR account.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link href="/auth/login" className="ui-btn">Sign in</Link>
+            <Link href="/auth/register" className="ui-btn-ghost">Create an account</Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Page frame for every account page: friendly header, pill tab navigation, content. Asks visitors to sign in. */
 export function AccountShell({ active, eyebrow = 'Your account', title, subtitle, onLogout, children }: {
   active: AccountTab;
   eyebrow?: string;
@@ -27,6 +60,10 @@ export function AccountShell({ active, eyebrow = 'Your account', title, subtitle
   onLogout?: () => void;
   children: React.ReactNode;
 }) {
+  const isClient = useIsClient();
+  const signedIn = useAuthStore((s) => s.isAuthenticated);
+  if (isClient && !signedIn) return <SignInPrompt active={active} />;
+
   return (
     <div className="w-full ui-page min-h-[70vh]">
       <header className="max-w-6xl mx-auto w-full px-4 sm:px-8 pt-8 sm:pt-12">

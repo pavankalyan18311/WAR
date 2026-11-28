@@ -5,8 +5,10 @@ import Link from 'next/link';
 import { Minus, Plus, Search } from 'lucide-react';
 import ShippingNote from '@/components/ui/ShippingNote';
 import { storePolicy as p } from '@/lib/storePolicy';
+import { useReturnDays } from '@/hooks/useReturnDays';
 
-const FAQ_CATEGORIES = [
+/** FAQ content; the return window comes from Admin → Settings. */
+const faqCategories = (returnDays: number) => [
   {
     category: 'Orders & Payments',
     items: [
@@ -28,9 +30,9 @@ const FAQ_CATEGORIES = [
   {
     category: 'Returns & Exchanges',
     items: [
-      { q: 'What is your return policy?', a: 'You can return or exchange items within ' + p.returnDays + ' days of delivery, as long as they are unworn, unwashed and have their tags attached.' },
+      { q: 'What is your return policy?', a: 'You can return or exchange items within ' + returnDays + ' days of delivery, as long as they are unworn, unwashed and have their tags attached.' },
       { q: 'How do I return or exchange an item?', a: 'Send us a message through the Contact page with your order reference, the item and the reason. We will arrange a reverse pickup where available, or share the address to send it to.' },
-      { q: 'Can I exchange for a different size?', a: 'Yes, size exchanges are available within ' + p.returnDays + ' days of delivery, subject to stock. If your size is not available we will refund you instead.' },
+      { q: 'Can I exchange for a different size?', a: 'Yes, size exchanges are available within ' + returnDays + ' days of delivery, subject to stock. If your size is not available we will refund you instead.' },
       { q: 'When will I get my refund?', a: 'Within ' + p.refundDays + ' after the returned item passes our quality check — to your original payment method, or to your UPI/bank account for Cash on Delivery orders.' },
       { q: 'I received a damaged or wrong item. What do I do?', a: 'Contact us within ' + p.damageReportHours + ' hours of delivery with photos of the item and packaging. We will send a free replacement or give you a full refund.' },
     ],
@@ -54,6 +56,7 @@ const FAQ_CATEGORIES = [
 ];
 
 export default function FAQPage() {
+  const FAQ_CATEGORIES = faqCategories(useReturnDays());
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
@@ -97,9 +100,9 @@ export default function FAQPage() {
           </div>
         </header>
 
-        <div className="grid md:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
           {/* Topics */}
-          <nav className="md:col-span-3" aria-label="FAQ topics">
+          <nav className="md:col-span-3 min-w-0" aria-label="FAQ topics">
             <ul className="flex md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 md:sticky md:top-32 [scrollbar-width:none]">
               {categories.map((cat) => {
                 const active = activeCategory === cat;

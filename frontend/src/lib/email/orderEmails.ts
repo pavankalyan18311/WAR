@@ -1,4 +1,5 @@
 import { sendEmail } from '@/lib/mailer';
+import { loadStoreSettings } from '@/lib/checkout/storeSettings';
 import {
   itemCancelledEmail,
   orderDeliveredEmail,
@@ -74,6 +75,7 @@ export async function sendOrderEmail(supabase: any, orderId: string, what: Order
       address: order.shipping_address ?? {},
       siteUrl: siteUrl(),
       pointsEarned: order.points_earned ?? null,
+      returnDays: (await loadStoreSettings(supabase)).return_days,
     };
 
     const email = render(data, allItems, what);

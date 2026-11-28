@@ -6,7 +6,7 @@ import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { SlidersHorizontal, X, ChevronDown, Check, Plus, Minus } from 'lucide-react';
 import ProductCard from '@/components/product/ProductCard';
 import ProductRail from '@/components/product/ProductRail';
-import { useRecentlyViewedStore } from '@/store/recentlyViewedStore';
+import { useRecentlyViewed } from '@/hooks/useRecentlyViewed';
 import { getProducts, getBestSellers, getCollections, getCategories, getColors, getSizeOptions } from '@/lib/supabase/queries';
 import type { Product, Category, Color, SizeOption } from '@/types';
 import { ProductGridSkeleton } from '@/components/ui/Skeleton';
@@ -77,7 +77,7 @@ export default function ProductsPage() {
     getBestSellers(100).then((list: any[]) => setSalesRank(list.map((p) => p.id))).catch(() => {});
   }, []);
   const [loadingProducts, setLoadingProducts] = useState(true);
-  const recentlyViewed = useRecentlyViewedStore((s) => s.items);
+  const recentlyViewed = useRecentlyViewed();
 
   // Fetch dynamic metadata from database (categories, colors, sizes, collections)
   useEffect(() => {

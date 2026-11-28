@@ -7,11 +7,14 @@ const coupons = [
   { code: 'BIG200', title: '₹200 OFF', desc: 'On orders of ₹2000 or more.', expires: 'No expiry', discount_type: 'flat', discount_value: 200, min_order_amount: 2000 },
 ];
 const fetchMock = vi.fn();
+const auth = { isAuthenticated: true };
+vi.mock('@/store/authStore', () => ({ useAuthStore: (sel?: (s: typeof auth) => unknown) => (sel ? sel(auth) : auth) }));
 const onApply = vi.fn();
 const onRemove = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset(); onApply.mockReset(); onRemove.mockReset();
+  auth.isAuthenticated = true;
   fetchMock.mockImplementation(async (url: string, init?: any) => {
     if (url === '/api/coupons') return { ok: true, json: async () => ({ coupons }) };
     const { code } = JSON.parse(init.body);
@@ -51,5 +54,12 @@ describe('CouponPicker (checkout)', () => {
     expect(screen.getByText(/WELCOME10/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /remove coupon/i }));
     expect(onRemove).toHaveBeenCalled();
+  });
+
+  it('does not ask for saved coupons before the customer has signed in', async () => {
+    auth.isAuthenticated = false;
+    render(<CouponPicker subtotal={1200} appliedCode="" onApply={onApply} onRemove={onRemove} />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchMock.mock.calls.some(([u]) => u === '/api/coupons')).toBe(false);
   });
 });

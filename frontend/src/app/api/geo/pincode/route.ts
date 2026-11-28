@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { rateLimit, RATE } from '@/lib/rateLimit';
 import { lookupPincode } from '@/lib/geo';
 
 export const runtime = 'nodejs';
@@ -6,6 +7,9 @@ export const dynamic = 'force-dynamic';
 
 /** GET /api/geo/pincode?pin=560001 → { city, state } */
 export async function GET(request: Request) {
+  const limited = rateLimit(request, 'lookup', RATE.lookup);
+  if (limited) return limited;
+
   const pin = new URL(request.url).searchParams.get('pin') ?? '';
   if (!/^[1-9]\d{5}$/.test(pin)) return NextResponse.json({ error: 'Enter a valid 6-digit pincode.' }, { status: 400 });
 

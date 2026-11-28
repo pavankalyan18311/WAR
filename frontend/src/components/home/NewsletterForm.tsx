@@ -31,7 +31,7 @@ export default function NewsletterForm() {
 
   if (submitted) {
     return (
-      <div className="flex items-center gap-4 py-2" style={{ color: '#F5F2EC' }}>
+      <div className="flex items-center gap-4 py-2" style={{ color: 'var(--fg)' }}>
         <CheckCircle size={22} />
         <div>
           <p className="font-display text-2xl">You&apos;re on the list.</p>
@@ -50,16 +50,16 @@ export default function NewsletterForm() {
         placeholder="Enter your email"
         required
         aria-label="Email address"
-        className="flex-1 px-0 py-3.5 text-base outline-none bg-transparent border-b placeholder:text-[rgba(245,242,236,0.45)]"
-        style={{ borderColor: 'rgba(245,242,236,0.35)', color: '#F5F2EC' }}
+        className="flex-1 px-0 py-3.5 text-base outline-none bg-transparent border-b placeholder:text-[var(--fg-subtle)]"
+        style={{ borderColor: 'var(--border-strong)', color: 'var(--fg)' }}
         onFocus={(e) => (e.currentTarget.style.borderColor = '#F5F2EC')}
         onBlur={(e) => (e.currentTarget.style.borderColor = 'rgba(245,242,236,0.35)')}
       />
       <button
         type="submit"
         disabled={loading}
-        className="px-8 py-3.5 font-semibold text-xs uppercase tracking-[0.18em] whitespace-nowrap disabled:opacity-60 transition-colors hover:bg-[#7A1F1F] hover:text-[#F5F2EC]"
-        style={{ background: '#F5F2EC', color: '#161412' }}
+        className="px-8 py-3.5 font-semibold text-xs uppercase tracking-[0.18em] whitespace-nowrap disabled:opacity-60 transition-colors hover:bg-[#F36E21] hover:text-white"
+        style={{ background: 'var(--primary)', color: 'var(--primary-fg)' }}
       >
         {loading ? (
           <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin inline-block" />

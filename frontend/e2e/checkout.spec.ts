@@ -1,98 +1,102 @@
-import { test, expect } from '@playwright/test'
+/* eslint-disable @typescript-eslint/no-explicit-any -- loosely typed test doubles / admin client */
+import fs from 'node:fs';
+import { test, expect, type Page } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
 
-test.describe('Cart and Checkout Flow', () => {
-  test.beforeEach(async ({ page }) => {
-    // Navigate to a product and add it to cart
-    await page.goto('/products')
-    // Click product link inside card to navigate reliably
-    // Disable overlays that may intercept clicks
-    await page.addStyleTag({ content: 'div[class*="fixed inset-0"], div[role="dialog"] { pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }' })
-    await page.locator('[data-testid="product-card"] a').first().click()
-    await page.waitForURL(/\/products\/[a-z0-9-]+/)
+/**
+ * Cart → checkout as a real customer. Adding to cart needs an account, so a visitor is sent to sign in;
+ * a signed-in customer's cart is saved to their account and carries through to checkout.
+ * Uses a temporary customer (deleted at the end). Stops before placing the order — no order or email is created.
+ */
+const env = Object.fromEntries(
+  fs.readFileSync('.env.local', 'utf8').split(/\r?\n/)
+    .filter((l) => l && !l.startsWith('#') && l.includes('='))
+    .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '')]),
+);
+const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } }) as any;
+const user = { id: '', email: `zz-cart-${Date.now()}@example.com`, password: `Zz!Cart${Date.now()}` };
 
-    // Remove any persistent overlays then select a size if selector is present
-    await page.addStyleTag({ content: 'div[class*="fixed inset-0"], div[role="dialog"] { pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }' })
-    await page.waitForTimeout(120)
-    // Select first enabled size button if present
-    const sizeButtons = await page.locator('[data-testid^="size-button-"]').all()
-    for (const btn of sizeButtons) {
-      if (await btn.isEnabled()) {
-        await btn.click()
-        break
-      }
-    }
-    const addToCart = page.getByRole('button', { name: /add to cart/i })
-    await addToCart.click()
-    // Open cart drawer explicitly via header cart button
-    if (await page.getByLabel(/cart/i).isVisible().catch(() => false)) {
-      await page.getByLabel(/cart/i).click()
-    }
-  })
+test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
-  test('cart drawer opens after adding item', async ({ page }) => {
-    // Verify header badge shows at least one item (text content check)
-    const badge = page.locator('[data-testid="cart-badge"]')
-    const count = await badge.textContent()
-    expect(Number(count)).toBeGreaterThanOrEqual(1)
-  })
+test.beforeAll(async () => {
+  const { data, error } = await db.auth.admin.createUser({ email: user.email, password: user.password, email_confirm: true });
+  if (error) throw error;
+  user.id = data.user.id;
+  await db.from('profiles').upsert({ id: user.id, email: user.email, name: 'ZZ Cart', role: 'customer' });
+});
+test.afterAll(async () => {
+  if (!user.id) return;
+  const { data: carts } = await db.from('carts').select('id').eq('user_id', user.id);
+  const ids = (carts ?? []).map((c: any) => c.id);
+  if (ids.length) {
+    await db.from('cart_items').delete().in('cart_id', ids);
+    await db.from('carts').delete().in('id', ids);
+  }
+  await db.from('profiles').delete().eq('id', user.id);
+  await db.auth.admin.deleteUser(user.id);
+});
 
-  test('cart page shows added item', async ({ page }) => {
-    await page.goto('/cart')
-    const items = page.locator('[data-testid="cart-item"]')
-    await expect(items.first()).toBeVisible()
-  })
+const noPopup = (page: Page) => page.addInitScript(() => sessionStorage.setItem('threadx-auth-popup-shown', '1'));
 
-  test('coupon code SUMMER20 applies discount', async ({ page }) => {
-    await page.goto('/cart')
-    const couponInput = page.locator('[data-testid="cart-coupon-input"]')
-    await couponInput.fill('SUMMER20')
-    // Remove any overlays that may intercept clicks, then apply
-    await page.addStyleTag({ content: 'div[class*="fixed inset-0"], div[role="dialog"] { pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }' })
-    await page.waitForTimeout(120)
-    await page.getByRole('button', { name: /apply/i }).click()
-    const applied = page.getByText('SUMMER20 applied').first()
-    const discountLabel = page.getByText('Discount (SUMMER20)').first()
-    const ok = (await applied.isVisible().catch(() => false)) || (await discountLabel.isVisible().catch(() => false))
-    expect(ok).toBeTruthy()
-  })
+async function signIn(page: Page) {
+  await noPopup(page);
+  await page.goto('/auth/login', { waitUntil: 'networkidle' });
+  await expect(async () => {
+    await page.getByTestId('auth-email').fill(user.email);
+    await page.getByTestId('auth-password').fill(user.password);
+    await expect(page.getByTestId('auth-email')).toHaveValue(user.email, { timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+  await page.getByRole('button', { name: /sign in|log in|login/i }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith('/auth'), { timeout: 30_000 });
+}
 
-  test('checkout flow completes through 3 steps', async ({ page }) => {
-    // Add an item to cart first so checkout shows the form
-    await page.goto('/products')
-    await page.addStyleTag({ content: 'div[class*="fixed inset-0"], div[role="dialog"] { pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }' })
-    await page.locator('[data-testid="product-card"] a').first().click()
-    await page.waitForURL(/\/products\/[a-z0-9-]+/)
-    const sizeButtons = await page.locator('[data-testid^="size-button-"]').all()
-    for (const btn of sizeButtons) {
-      if (await btn.isEnabled()) { await btn.click(); break }
-    }
-    await page.locator('[data-testid="pdp-add-to-cart"]').click()
-    await page.goto('/checkout')
-    // Disable overlays that might block form inputs
-    await page.addStyleTag({ content: 'div[class*="fixed inset-0"], div[role="dialog"] { pointer-events: none !important; opacity: 0 !important; visibility: hidden !important; }' })
+async function openFirstProductAndPickSize(page: Page) {
+  await page.goto('/products', { waitUntil: 'networkidle' });
+  await page.getByTestId('product-card').first().locator('a').first().click();
+  await page.waitForURL(/\/products\/[a-z0-9-]+/);
+  await expect(page.getByTestId('product-title')).toBeVisible();
+  const sizes = page.locator('[data-testid^="size-button-"]:enabled');
+  await expect(sizes.first()).toBeVisible();
+  await sizes.first().click();
+}
 
-    // Step 1 — Shipping address (use placeholders since inputs aren't label-associated)
-    await page.getByPlaceholder(/first name/i).fill('Test')
-    await page.getByPlaceholder(/last name/i).fill('User')
-    await page.getByPlaceholder(/email address/i).fill('test@threadx.com')
-    await page.getByPlaceholder(/phone number/i).fill('9876543210')
-    await page.getByPlaceholder(/street address|address/i).first().fill('123 Test Street')
-    await page.getByPlaceholder(/city/i).fill('Mumbai')
-    await page.getByPlaceholder(/state/i).fill('Maharashtra')
-    await page.getByPlaceholder(/pincode|zip/i).fill('400001')
-    await page.getByRole('button', { name: /continue/i }).click()
+test('checkout with an empty cart says so, instead of showing an empty order form', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/checkout', { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: /your cart is empty/i })).toBeVisible();
+  await expect(page.getByRole('link', { name: /shop the drop|browse/i }).first()).toBeVisible();
+  await expect(page.getByPlaceholder('First Name *')).toHaveCount(0);
+});
 
-    // Step 2 — Payment selection
-    await expect(page.getByRole('heading', { name: /payment method/i })).toBeVisible()
-    const codOption = page.getByLabel(/cash on delivery|cod/i)
-    if (await codOption.isVisible()) {
-      await codOption.click()
-    }
-    await page.getByRole('button', { name: /review order/i }).click()
+test('a visitor who adds to cart is asked to sign in first', async ({ page }) => {
+  await noPopup(page);
+  await openFirstProductAndPickSize(page);
+  await page.getByTestId('pdp-add-to-cart').click();
+  await page.waitForURL(/\/auth\/login/);
+});
 
-    // Step 3 — Review or success
-    await expect(
-      page.getByText(/confirm|order summary|success/i)
-    ).toBeVisible({ timeout: 5000 })
-  })
-})
+test('a signed-in customer adds to cart, sees it in the cart and at checkout', async ({ page }) => {
+  await signIn(page);
+
+  await openFirstProductAndPickSize(page);
+  const name = (await page.getByTestId('product-title').textContent())!.trim();
+  await page.getByTestId('pdp-add-to-cart').click();
+
+  // The drawer opens with the item, and the cart is saved to the account (browser → database, own cart only).
+  await expect(page.getByTestId('cart-drawer')).toBeVisible();
+  await expect(page.getByTestId('cart-badge')).toHaveText(/[1-9]/);
+  await expect.poll(async () => {
+    const { data: carts } = await db.from('carts').select('id').eq('user_id', user.id);
+    const ids = (carts ?? []).map((c: any) => c.id);
+    if (!ids.length) return 0;
+    return ((await db.from('cart_items').select('id').in('cart_id', ids)).data ?? []).length;
+  }, { timeout: 15_000 }).toBe(1);
+
+  await page.goto('/cart', { waitUntil: 'networkidle' });
+  await expect(page.getByTestId('cart-item').first()).toContainText(name);
+
+  await page.goto('/checkout', { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { level: 1, name: 'Checkout' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Delivery Address' })).toBeVisible();
+  await expect(page.getByText(name).first()).toBeVisible();
+});
