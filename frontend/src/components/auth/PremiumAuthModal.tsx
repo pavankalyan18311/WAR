@@ -6,9 +6,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { useAuthPopupStore } from '@/store/authPopupStore';
+import { AUTH_HERO_IMAGE } from '@/lib/authMedia';
 
 const SESSION_KEY = 'threadx-auth-popup-shown';
-const FALLBACK_MEDIA = '/images/Hero_banner.png';
+const FALLBACK_MEDIA = AUTH_HERO_IMAGE;
 
 function canShowInSession(sessionBehavior: 'once-per-session' | 'always') {
   if (sessionBehavior === 'always') return true;

@@ -3,6 +3,7 @@ import Image from 'next/image';
 import type { ReactNode } from 'react';
 import { ShieldCheck, Truck, Sparkles } from 'lucide-react';
 import WarLogo from '@/components/brand/WarLogo';
+import { AUTH_HERO_IMAGE } from '@/lib/authMedia';
 
 const PERKS = [
   { icon: Truck, text: 'Track every order in one place' },
@@ -14,7 +15,7 @@ const PERKS = [
  * Split layout for the sign-in pages: bright campaign panel on the left (desktop only),
  * the form in a rounded card on the right. Single column on phones.
  */
-export default function AuthShell({ eyebrow, title, subtitle, children, footer, image = '/images/Hero_banner.png' }: {
+export default function AuthShell({ eyebrow, title, subtitle, children, footer, image = AUTH_HERO_IMAGE }: {
   eyebrow: string;
   title: ReactNode;
   subtitle?: ReactNode;
